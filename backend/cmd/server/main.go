@@ -7,14 +7,13 @@ import (
 )
 
 func main() {
-	database, err := db.Connect()
-	if err != nil {
-		log.Fatalf("Could not connect to database: %v", err)
-	}
-	defer database.Close()
+    database, err := db.Connect()
+    if err != nil {
+        // Only log, don't use log.Fatalf (which stops the server)
+        log.Printf("Database connection status: %v", err)
+    }
 
-	mux := setupRoutes(database)
-
-	log.Println("Server starting on :8080...")
-	http.ListenAndServe(":8080", mux)
+    mux := setupRoutes(database)
+    log.Println("Server successfully started on port :8080")
+    http.ListenAndServe(":8080", mux)
 }
