@@ -1,4 +1,4 @@
-package authservices
+package services
 
 import (
 	"log/slog"
