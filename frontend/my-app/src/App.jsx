@@ -10,6 +10,8 @@ const C = {
   white: "#F0F4FF", text: "#B8C4DE", dim: "#5A6A8A",
 };
 
+const API_BASE_URL = (import.meta.env.VITE_P2_API_URL || import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+
 // ── Seed Credentials ───────────────────────────────────────────────────
 const SEED_CREDENTIALS = [
   {
@@ -113,6 +115,51 @@ function statusBadge(status) {
     invalid: { label: "INVALID", color: C.red, bg: "rgba(255,77,109,0.1)", border: "rgba(255,77,109,0.3)" },
   };
   return badgeMap[normalized] || { label: normalized.toUpperCase(), color: C.dim, bg: "rgba(90,106,138,0.1)", border: "rgba(90,106,138,0.3)" };
+}
+
+async function issueCredential(payload) {
+  const response = await fetch(`${API_BASE_URL}/credentials/issue`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const text = await response.text();
+  let body;
+  try {
+    body = text ? JSON.parse(text) : {};
+  } catch {
+    body = { message: text };
+  }
+
+  if (!response.ok) {
+    throw new Error(body.message || body.error || `Issue request failed with status ${response.status}`);
+  }
+
+  return body;
+}
+
+function normalizeIssuedCredential(payload, responseBody) {
+  const source = responseBody.credential || responseBody.data || responseBody;
+
+  return {
+    id: source.id || source.credentialId || payload.id,
+    title: source.title || payload.title,
+    type: source.type || payload.type,
+    recipient: source.recipient || payload.recipient,
+    recipientEmail: source.recipientEmail || source.recipient_email || payload.recipientEmail,
+    issuer: source.issuer || payload.issuer,
+    issuerWallet: source.issuerWallet || source.issuer_wallet || payload.issuerWallet,
+    issueDate: source.issueDate || source.issue_date || payload.issueDate,
+    description: source.description || payload.description,
+    skills: source.skills || payload.skills,
+    txHash: source.txHash || source.tx_hash || "",
+    blockNumber: source.blockNumber || source.block_number || "",
+    network: source.network || "Polygon Amoy",
+    dataHash: source.dataHash || source.data_hash || payload.dataHash,
+    status: source.status || "verified",
+    emoji: payload.type === "degree" ? "🎓" : payload.type === "participation" ? "🏅" : "⛓",
+    color: C.teal,
+  };
 }
 
 // ── SVG QR Mock ───────────────────────────────────────────────────────
@@ -529,12 +576,13 @@ function IssueCredential({ user, onIssued, onBack }) {
   const [step, setStep] = useState("form"); // form | signing | success
   const [sigStep, setSigStep] = useState(0);
   const [result, setResult] = useState(null);
+  const [submitError, setSubmitError] = useState("");
 
   const sigSteps = [
     { label: "Computing SHA-256 hash...", color: C.acc },
-    { label: "Submitting issueCredential() to Polygon Amoy...", color: C.amber },
-    { label: "Waiting for block confirmation...", color: C.teal },
-    { label: "Saving to database...", color: C.purple },
+    { label: "Submitting POST /credentials/issue...", color: C.amber },
+    { label: "Waiting for P2 confirmation...", color: C.teal },
+    { label: "Saving issued credential...", color: C.purple },
     { label: "Generating QR URL...", color: C.green },
   ];
 
@@ -542,44 +590,47 @@ function IssueCredential({ user, onIssued, onBack }) {
     if (!form.recipient || !form.title || !form.issueDate) return;
     setStep("signing");
     setSigStep(0);
-
-    for (let i = 0; i < sigSteps.length; i++) {
-      await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
-      setSigStep(i + 1);
-    }
+    setSubmitError("");
 
     const skillsArr = form.skills.split(",").map(s => s.trim()).filter(Boolean);
     const credId = "cred_" + Math.random().toString(36).slice(2, 10);
-    const txHash = "0x" + Array.from({ length: 64 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
-    const blockNum = (4800000 + Math.floor(Math.random() * 100000)).toLocaleString();
     const dataHash = fakeHash(form.title + form.recipient + form.issueDate + skillsArr.join());
 
-    const newCred = {
+    const payload = {
       id: credId,
       title: form.title,
       type: form.type,
       recipient: form.recipient,
       recipientEmail: form.recipientEmail,
       issuer: user.name,
-      issuerWallet: user.wallet,
+      issuerWallet: user.walletAddress || user.wallet,
       issueDate: form.issueDate,
       description: form.description,
       skills: skillsArr,
-      txHash,
-      blockNumber: blockNum,
-      network: "Polygon Amoy",
       dataHash,
-      status: "verified",
-      emoji: form.type === "degree" ? "🎓" : form.type === "participation" ? "🏅" : "⛓",
-      color: C.teal,
     };
 
-    setResult(newCred);
-    setStep("success");
-    onIssued(newCred);
+    try {
+      setSigStep(1);
+      const responseBody = await issueCredential(payload);
+      setSigStep(sigSteps.length);
+      const issuedCredential = normalizeIssuedCredential(payload, responseBody);
+
+      setResult(issuedCredential);
+      setStep("success");
+      onIssued(issuedCredential);
+    } catch (error) {
+      setSubmitError(error.message || "Unable to issue credential.");
+      setStep("form");
+    }
   }
 
   function setField(k, v) { setForm(f => ({ ...f, [k]: v })); }
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    handleIssue();
+  }
 
   if (step === "signing") {
     return (
@@ -686,7 +737,7 @@ function IssueCredential({ user, onIssued, onBack }) {
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28 }}>
           {/* FORM */}
-          <div>
+          <form onSubmit={handleSubmit}>
             {[
               { key: "recipientEmail", label: "Recipient Email or Wallet", placeholder: "alice@example.com or 0x..." },
               { key: "recipient", label: "Recipient Name", placeholder: "Alice Wanjiku" },
@@ -728,12 +779,18 @@ function IssueCredential({ user, onIssued, onBack }) {
               </div>
             </div>
 
-            <button style={{ ...styles.btnBlue, marginTop: 6, padding: "11px 22px" }} onClick={handleIssue}
-              disabled={!form.recipient || !form.title}>
+            {submitError && (
+              <div style={{ background: "rgba(255,77,109,0.08)", border: "1px solid rgba(255,77,109,0.25)", borderRadius: 8, padding: "10px 12px", color: C.red, fontSize: 12, marginBottom: 12 }}>
+                {submitError}
+              </div>
+            )}
+
+            <button type="submit" style={{ ...styles.btnBlue, marginTop: 6, padding: "11px 22px" }}
+              disabled={!form.recipient || !form.title || !form.issueDate}>
               ⛓ Sign &amp; Issue on Blockchain
             </button>
             <div style={{ ...styles.mono, fontSize: 11, color: C.dim, marginTop: 8 }}>Signing with: {user.wallet} ({user.name})</div>
-          </div>
+          </form>
 
           {/* WHAT HAPPENS */}
           <div>
@@ -1119,8 +1176,9 @@ export default function App() {
 
   if (page === "portfolio") return <PortfolioPage slug={portfolioSlug} allCredentials={credentials} onVerify={handleVerify} onBack={() => setPage(user ? "dashboard" : "landing")} />;
   if (page === "verify") return <VerifyPage credentialId={verifyId} allCredentials={credentials} onBack={() => setPage(user ? "dashboard" : "landing")} />;
-  if (page === "issue" && user) return <IssueCredential user={user} onIssued={handleIssued} onBack={() => setPage("dashboard")} />;
+  if (page === "issue" && user?.role === "issuer") return <IssueCredential user={user} onIssued={handleIssued} onBack={() => setPage("dashboard")} />;
   if (page === "dashboard" && user) return <Dashboard user={user} credentials={credentials} onVerify={handleVerify} onIssue={() => setPage("issue")} onPortfolio={handlePortfolio} onLogout={handleLogout} />;
+  if (page === "issue" && user) return <Dashboard user={user} credentials={credentials} onVerify={handleVerify} onIssue={() => setPage("issue")} onPortfolio={handlePortfolio} onLogout={handleLogout} />;
 
   return <Landing onLogin={handleLogin} onVerify={handleVerify} onPortfolio={handlePortfolio} />;
 }
