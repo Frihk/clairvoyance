@@ -8,11 +8,11 @@ import (
 )
 
 func main() {
-	r := router.SetupRouter()
-
+	config.Load()
 	utils.InitLogger(config.App.AppEnv)
-
-	if err := r.Run(":9000"); err != nil {
-		log.Fatal("Failed to start")
+	
+	r := router.SetupRouter()
+	if err := r.Run(":"+config.App.Port); err != nil {
+		log.Fatal("Failed to start:",err)
 	}
 }
