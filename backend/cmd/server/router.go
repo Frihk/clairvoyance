@@ -25,10 +25,18 @@ func setupRoutes(database *sql.DB) *http.ServeMux {
 
 	// POST verify endpoint
 	mux.HandleFunc("POST /verify", func(w http.ResponseWriter, r *http.Request) {
+		// Safety check: if DB is nil, inform the user about Demo Mode
+		if database == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"status": "offline", "message": "Demo mode: Database unreachable"}`))
+			return
+		}
+
 		// 1. Parsing would happen here, keeping it static for now as requested
-		taskID := 1 
+		taskID := 1
 		txHash := "0xRealTransactionHash123"
 
+		// 2. Call the real database update
 		err := db.UpdateTaskStatus(database, taskID, txHash, "Completed")
 		if err != nil {
 			http.Error(w, "Failed to update task", http.StatusInternalServerError)
