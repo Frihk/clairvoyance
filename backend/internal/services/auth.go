@@ -5,7 +5,7 @@ import (
 
 	"clairvoyance/internal/auth"
 	"clairvoyance/internal/models"
-	"clairvoyance/internal/repository"
+	"clairvoyance/internal/repositories"
 	"clairvoyance/internal/utils"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
