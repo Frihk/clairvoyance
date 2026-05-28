@@ -164,6 +164,23 @@ function githubTotals(sync) {
   }), { commits: 0, prs: 0, contribution: 0 });
 }
 
+function githubAverageContribution(sync) {
+  if (!sync?.repos.length) return 0;
+  return Math.round(githubTotals(sync).contribution / sync.repos.length);
+}
+
+function teamMemberForSlug(slug) {
+  return TEAM_MEMBERS.find(member => member.slug === slug);
+}
+
+function reputationScore({ credentials = [], githubSync, contribution = 0 }) {
+  const verifiedCount = credentials.filter(c => c.status === "verified").length;
+  const credentialScore = Math.min(verifiedCount * 20, 40);
+  const githubScore = Math.round(githubAverageContribution(githubSync) * 0.35);
+  const contributionScore = Math.round(contribution * 0.25);
+  return Math.min(100, credentialScore + githubScore + contributionScore);
+}
+
 function GitHubRepoRows({ sync, color = C.teal }) {
   if (!sync) {
     return (
@@ -475,6 +492,12 @@ function Dashboard({ user, credentials, onVerify, onIssue, onPortfolio, onTeam, 
   const slug = personSlug(user.name);
   const githubSync = GITHUB_SYNC[slug];
   const githubStats = githubTotals(githubSync);
+  const teamMember = teamMemberForSlug(slug);
+  const reputation = reputationScore({
+    credentials: myCredentials,
+    githubSync,
+    contribution: teamMember?.contribution || githubAverageContribution(githubSync),
+  });
 
   async function copyCredentialQrLink(cred) {
     const link = credentialVerifyUrl(cred.id);
@@ -520,6 +543,7 @@ function Dashboard({ user, credentials, onVerify, onIssue, onPortfolio, onTeam, 
             {[
               { label: "Credentials", value: myCredentials.length, color: C.teal },
               { label: "Verified", value: myCredentials.filter(c => c.status === "verified").length, color: C.green },
+              { label: "Reputation", value: reputation, color: C.amber },
             ].map(s => (
               <div key={s.label} style={{ ...styles.card, textAlign: "center", minWidth: 90, padding: "14px 20px" }}>
                 <div style={{ ...styles.mono, fontSize: 9, color: C.dim, letterSpacing: 2, marginBottom: 4, textTransform: "uppercase" }}>{s.label}</div>
@@ -550,6 +574,18 @@ function Dashboard({ user, credentials, onVerify, onIssue, onPortfolio, onTeam, 
                 Last synced {githubSync.lastSynced}
               </div>
             )}
+            <div style={{ marginTop: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 6 }}>
+                <div style={{ ...styles.mono, fontSize: 10, color: C.amber, letterSpacing: 1.5, textTransform: "uppercase" }}>Reputation Score</div>
+                <div style={{ ...styles.mono, fontSize: 11, color: C.amber }}>{reputation}/100</div>
+              </div>
+              <div style={{ height: 7, background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 20, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${reputation}%`, background: C.amber, borderRadius: 20 }} />
+              </div>
+              <div style={{ ...styles.mono, fontSize: 10, color: C.dim, marginTop: 6 }}>
+                Computed from verified credentials, synced GitHub activity, and contribution progress.
+              </div>
+            </div>
           </div>
           <GitHubRepoRows sync={githubSync} color={C.acc} />
         </div>
@@ -683,11 +719,17 @@ function TeamPage({ user, credentials, onBack, onPortfolio, onLogout }) {
       githubPrs: syncTotals.prs,
       credentialCount: memberCredentials.length,
       verifiedCount: memberCredentials.filter(c => c.status === "verified").length,
+      reputation: reputationScore({
+        credentials: memberCredentials,
+        githubSync: sync,
+        contribution: member.contribution,
+      }),
     };
   });
   const totalCredentials = members.reduce((sum, member) => sum + member.credentialCount, 0);
   const totalCommits = members.reduce((sum, member) => sum + member.githubCommits, 0);
   const avgContribution = Math.round(members.reduce((sum, member) => sum + member.contribution, 0) / members.length);
+  const avgReputation = Math.round(members.reduce((sum, member) => sum + member.reputation, 0) / members.length);
 
   return (
     <div style={styles.app}>
@@ -718,6 +760,7 @@ function TeamPage({ user, credentials, onBack, onPortfolio, onLogout }) {
               { label: "Members", value: members.length, color: C.teal },
               { label: "Credentials", value: totalCredentials, color: C.green },
               { label: "Commits", value: totalCommits, color: C.acc },
+              { label: "Avg Rep", value: avgReputation, color: C.purple },
               { label: "Avg Progress", value: `${avgContribution}%`, color: C.amber },
             ].map(s => (
               <div key={s.label} style={{ ...styles.card, textAlign: "center", minWidth: 92, padding: "14px 18px" }}>
@@ -743,6 +786,15 @@ function TeamPage({ user, credentials, onBack, onPortfolio, onLogout }) {
                   <Tag color={C.teal} bg="rgba(0,201,167,0.1)" border="rgba(0,201,167,0.3)">
                     {member.credentialCount} Credential{member.credentialCount === 1 ? "" : "s"}
                   </Tag>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 72px", gap: 10, alignItems: "center", marginTop: 10 }}>
+                  <div style={{ height: 8, background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 20, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${member.reputation}%`, background: C.amber, borderRadius: 20 }} />
+                  </div>
+                  <div style={{ ...styles.mono, fontSize: 11, color: C.amber, textAlign: "right" }}>{member.reputation}/100</div>
+                </div>
+                <div style={{ ...styles.mono, fontSize: 10, color: C.dim, marginTop: 6 }}>
+                  Reputation computed from verified credentials, GitHub sync, and contribution progress
                 </div>
                 <div style={{ background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", marginTop: 10 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
