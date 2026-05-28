@@ -100,6 +100,21 @@ function shortAddress(address) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
+function credentialVerifyUrl(id) {
+  return `proofpass.io/verify/${id}`;
+}
+
+function statusBadge(status) {
+  const normalized = String(status || "pending").toLowerCase();
+  const badgeMap = {
+    verified: { label: "✓ VERIFIED", color: C.green, bg: "rgba(34,197,94,0.1)", border: "rgba(34,197,94,0.3)" },
+    pending: { label: "PENDING", color: C.amber, bg: "rgba(245,166,35,0.1)", border: "rgba(245,166,35,0.3)" },
+    revoked: { label: "REVOKED", color: C.red, bg: "rgba(255,77,109,0.1)", border: "rgba(255,77,109,0.3)" },
+    invalid: { label: "INVALID", color: C.red, bg: "rgba(255,77,109,0.1)", border: "rgba(255,77,109,0.3)" },
+  };
+  return badgeMap[normalized] || { label: normalized.toUpperCase(), color: C.dim, bg: "rgba(90,106,138,0.1)", border: "rgba(90,106,138,0.3)" };
+}
+
 // ── SVG QR Mock ───────────────────────────────────────────────────────
 function QRCode({ value, size = 120 }) {
   const cells = [];
@@ -149,7 +164,6 @@ function Tag({ color, bg, border, children }) {
 
 // ── LANDING PAGE ────────────────────────────────────────────────────────
 function Landing({ onLogin, onVerify, onPortfolio }) {
-  const [loginMode, setLoginMode] = useState(null); // null | 'wallet' | 'email'
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
@@ -171,6 +185,7 @@ function Landing({ onLogin, onVerify, onPortfolio }) {
   }, [address, chain?.name, isConnected, onLogin]);
 
   function handleEmailLogin() {
+    setErr("");
     const acct = ISSUER_ACCOUNTS.find(a => a.email === email && a.password === password);
     if (acct) { onLogin(acct); } else { setErr("Invalid credentials. Try issuer@kenyatta.edu / demo123"); }
   }
@@ -216,7 +231,6 @@ function Landing({ onLogin, onVerify, onPortfolio }) {
         <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
           <span style={{ fontSize: 13, color: C.dim }}>How it Works</span>
           <button style={styles.btnGhost} onClick={() => onVerify(null)}>🔍 Verify</button>
-          <button style={{ ...styles.btnGhost, fontSize: 12 }} onClick={() => setLoginMode("email")}>Email Login</button>
           <button style={{ ...styles.btnBlue, fontSize: 12 }} onClick={() => handleWalletLogin()} disabled={isPending}>
             {isPending ? "Connecting..." : "🦊 Connect Wallet"}
           </button>
@@ -224,51 +238,57 @@ function Landing({ onLogin, onVerify, onPortfolio }) {
       </nav>
 
       {/* HERO */}
-      <div style={{ textAlign: "center", padding: "64px 32px 48px" }}>
-        <div style={{ ...styles.mono, fontSize: 10, color: C.teal, letterSpacing: 3, marginBottom: 16, textTransform: "uppercase" }}>
-          Blockchain Identity · Polygon Amoy
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "64px 32px 48px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 32, alignItems: "center" }}>
+        <div>
+          <div style={{ ...styles.mono, fontSize: 10, color: C.teal, letterSpacing: 3, marginBottom: 16, textTransform: "uppercase" }}>
+            Blockchain Identity · Polygon Amoy
+          </div>
+          <h1 style={{ ...styles.display, fontSize: 44, fontWeight: 800, color: C.white, lineHeight: 1.1, marginBottom: 14 }}>
+            Verifiable Skills.<br />
+            <span style={{ color: C.teal }}>Trusted Contributions.</span>
+          </h1>
+          <p style={{ color: C.dim, fontSize: 15, maxWidth: 460, margin: "0 0 28px", lineHeight: 1.7 }}>
+            Blockchain-signed credentials anyone can verify instantly — no account, no app, no trust required.
+          </p>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <button style={{ ...styles.btnTeal, padding: "11px 24px" }} onClick={() => onVerify(null)}>🔍 Verify a Credential</button>
+            <button style={{ ...styles.btnGhost, padding: "11px 24px" }} onClick={() => onPortfolio("alice")}>View Sample Portfolio</button>
+          </div>
         </div>
-        <h1 style={{ ...styles.display, fontSize: 44, fontWeight: 800, color: C.white, lineHeight: 1.1, marginBottom: 14 }}>
-          Verifiable Skills.<br />
-          <span style={{ color: C.teal }}>Trusted Contributions.</span>
-        </h1>
-        <p style={{ color: C.dim, fontSize: 15, maxWidth: 460, margin: "0 auto 28px", lineHeight: 1.7 }}>
-          Blockchain-signed credentials anyone can verify instantly — no account, no app, no trust required.
-        </p>
-        <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-          <button style={{ ...styles.btnBlue, padding: "11px 24px" }} onClick={handleWalletLogin} disabled={isPending}>
+
+        <div style={{ ...styles.card, padding: 28 }}>
+          <div style={{ ...styles.display, fontSize: 20, fontWeight: 700, color: C.white, marginBottom: 6 }}>Sign in</div>
+          <div style={{ fontSize: 12, color: C.dim, marginBottom: 18 }}>Use MetaMask as a holder, or email/password as an issuer.</div>
+
+          <button style={{ ...styles.btnBlue, width: "100%", justifyContent: "center", padding: "12px 18px", marginBottom: 12 }} onClick={handleWalletLogin} disabled={isPending}>
             {isPending ? "Connecting..." : "🦊 Connect MetaMask"}
           </button>
-          <button style={{ ...styles.btnGhost, padding: "11px 24px" }} onClick={() => setLoginMode("email")}>Sign in with Email</button>
-          <button style={{ ...styles.btnTeal, padding: "11px 24px" }} onClick={() => onVerify(null)}>🔍 Verify a Credential</button>
-        </div>
-        {connectError && (
-          <div style={{ ...styles.mono, fontSize: 11, color: C.red, marginTop: 12 }}>
-            {connectError.shortMessage || connectError.message}
-          </div>
-        )}
-        <div style={{ ...styles.mono, fontSize: 11, color: C.dim, marginTop: 12 }}>No MetaMask? Use Email login → works the same way</div>
-      </div>
 
-      {/* EMAIL LOGIN MODAL */}
-      {loginMode === "email" && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}
-          onClick={e => e.target === e.currentTarget && setLoginMode(null)}>
-          <div style={{ ...styles.card, width: 360, padding: 32 }}>
-            <div style={{ ...styles.display, fontSize: 20, fontWeight: 700, color: C.white, marginBottom: 6 }}>Issuer Login</div>
-            <div style={{ fontSize: 12, color: C.dim, marginBottom: 22 }}>Try: issuer@kenyatta.edu / demo123</div>
-            <label style={styles.label}>Email</label>
-            <input style={{ ...styles.input, marginBottom: 12 }} value={email} onChange={e => setEmail(e.target.value)} placeholder="issuer@kenyatta.edu" />
-            <label style={styles.label}>Password</label>
-            <input style={{ ...styles.input, marginBottom: 16 }} type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" onKeyDown={e => e.key === "Enter" && handleEmailLogin()} />
-            {err && <div style={{ fontSize: 12, color: C.red, marginBottom: 12 }}>{err}</div>}
-            <div style={{ display: "flex", gap: 10 }}>
-              <button style={styles.btnBlue} onClick={handleEmailLogin}>Sign In</button>
-              <button style={styles.btnGhost} onClick={() => setLoginMode(null)}>Cancel</button>
+          {connectError && (
+            <div style={{ ...styles.mono, fontSize: 11, color: C.red, marginBottom: 12 }}>
+              {connectError.shortMessage || connectError.message}
             </div>
+          )}
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "16px 0" }}>
+            <div style={{ height: 1, background: C.border, flex: 1 }} />
+            <div style={{ ...styles.mono, fontSize: 10, color: C.dim, letterSpacing: 2 }}>OR</div>
+            <div style={{ height: 1, background: C.border, flex: 1 }} />
+          </div>
+
+          <label style={styles.label}>Email</label>
+          <input style={{ ...styles.input, marginBottom: 12 }} value={email} onChange={e => setEmail(e.target.value)} placeholder="issuer@kenyatta.edu" />
+          <label style={styles.label}>Password</label>
+          <input style={{ ...styles.input, marginBottom: 14 }} type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="demo123" onKeyDown={e => e.key === "Enter" && handleEmailLogin()} />
+          {err && <div style={{ fontSize: 12, color: C.red, marginBottom: 12 }}>{err}</div>}
+          <button style={{ ...styles.btnGhost, width: "100%", justifyContent: "center", color: C.white }} onClick={handleEmailLogin}>
+            Sign in with Email
+          </button>
+          <div style={{ ...styles.mono, fontSize: 10, color: C.dim, marginTop: 12 }}>
+            Demo issuer: issuer@kenyatta.edu / demo123
           </div>
         </div>
-      )}
+      </div>
 
       {/* STATS */}
       <div style={{ maxWidth: 900, margin: "0 auto", padding: "0 32px 40px" }}>
@@ -325,12 +345,21 @@ function Landing({ onLogin, onVerify, onPortfolio }) {
 function Dashboard({ user, credentials, onVerify, onIssue, onPortfolio, onLogout }) {
   const [qrModal, setQrModal] = useState(null);
   const [portfolioQr, setPortfolioQr] = useState(false);
+  const [copiedId, setCopiedId] = useState(null);
   const myCredentials = user.role === "holder"
     ? credentials.filter(c => c.recipientEmail === user.email || c.recipient === user.name)
     : credentials;
+  const dashboardMode = user.role === "issuer" ? "issued" : "received";
 
   // derive slug from name for portfolio URL
   const slug = user.name.split(" ")[0].toLowerCase();
+
+  async function copyCredentialQrLink(cred) {
+    const link = credentialVerifyUrl(cred.id);
+    await navigator.clipboard?.writeText(link);
+    setCopiedId(cred.id);
+    setTimeout(() => setCopiedId(current => current === cred.id ? null : current), 1400);
+  }
 
   return (
     <div style={styles.app}>
@@ -393,7 +422,7 @@ function Dashboard({ user, credentials, onVerify, onIssue, onPortfolio, onLogout
         )}
 
         <div style={{ ...styles.display, fontWeight: 700, fontSize: 15, color: C.white, marginBottom: 14 }}>
-          {user.role === "issuer" ? "All Issued Credentials" : "My Credentials"}
+          {dashboardMode === "issued" ? "Issued Credentials" : "Received Credentials"}
         </div>
 
         {myCredentials.length === 0 ? (
@@ -404,15 +433,16 @@ function Dashboard({ user, credentials, onVerify, onIssue, onPortfolio, onLogout
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {myCredentials.map(cred => (
-              <div key={cred.id} style={{ ...styles.card, display: "flex", alignItems: "center", gap: 16 }}>
+              <div key={cred.id} style={{ ...styles.card, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
                 <div style={{ width: 46, height: 46, background: `${cred.color}22`, border: `1px solid ${cred.color}44`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>
                   {cred.emoji}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, color: C.white, fontWeight: 600, marginBottom: 2 }}>{cred.title}</div>
                   <div style={{ fontSize: 11, color: C.dim }}>
-                    {cred.issuer} · Issued {cred.issueDate}
-                    {user.role === "issuer" && <span> · <span style={{ color: C.teal }}>{cred.recipient}</span></span>}
+                    {dashboardMode === "issued" ? "Issued to" : "Received from"}{" "}
+                    <span style={{ color: C.teal }}>{dashboardMode === "issued" ? cred.recipient : cred.issuer}</span>
+                    {" "}· {cred.issueDate} · <span style={styles.mono}>{cred.id}</span>
                   </div>
                   <div style={{ display: "flex", gap: 5, marginTop: 7, flexWrap: "wrap" }}>
                     {cred.skills.map(s => (
@@ -420,10 +450,16 @@ function Dashboard({ user, credentials, onVerify, onIssue, onPortfolio, onLogout
                     ))}
                   </div>
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 7, flexShrink: 0 }}>
-                  <Tag color={C.green} bg="rgba(34,197,94,0.1)" border="rgba(34,197,94,0.3)">✓ VERIFIED</Tag>
-                  <div style={{ display: "flex", gap: 6 }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 7, flexShrink: 0, marginLeft: "auto" }}>
+                  {(() => {
+                    const badge = statusBadge(cred.status);
+                    return <Tag color={badge.color} bg={badge.bg} border={badge.border}>{badge.label}</Tag>;
+                  })()}
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <button style={{ ...styles.btnGhost, fontSize: 11, padding: "4px 10px" }} onClick={() => setQrModal(cred)}>📱 QR Code</button>
+                    <button style={{ ...styles.btnGhost, fontSize: 11, padding: "4px 10px" }} onClick={() => copyCredentialQrLink(cred)}>
+                      {copiedId === cred.id ? "✓ Copied" : "Copy QR link"}
+                    </button>
                     <button style={{ ...styles.btnGhost, fontSize: 11, padding: "4px 10px" }} onClick={() => onVerify(cred.id)}>🔍 Verify</button>
                   </div>
                 </div>
@@ -477,7 +513,7 @@ function Dashboard({ user, credentials, onVerify, onIssue, onPortfolio, onLogout
               proofpass.io/verify/{qrModal.id}
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-              <button style={styles.btnGhost} onClick={() => navigator.clipboard?.writeText(`proofpass.io/verify/${qrModal.id}`)}>Copy Link</button>
+              <button style={styles.btnGhost} onClick={() => navigator.clipboard?.writeText(credentialVerifyUrl(qrModal.id))}>Copy Link</button>
               <button style={styles.btnBlue} onClick={() => setQrModal(null)}>Close</button>
             </div>
           </div>
@@ -493,7 +529,6 @@ function IssueCredential({ user, onIssued, onBack }) {
   const [step, setStep] = useState("form"); // form | signing | success
   const [sigStep, setSigStep] = useState(0);
   const [result, setResult] = useState(null);
-  const [qrVisible, setQrVisible] = useState(false);
 
   const sigSteps = [
     { label: "Computing SHA-256 hash...", color: C.acc },
@@ -541,7 +576,6 @@ function IssueCredential({ user, onIssued, onBack }) {
 
     setResult(newCred);
     setStep("success");
-    setQrVisible(true);
     onIssued(newCred);
   }
 
@@ -754,7 +788,13 @@ function VerifyPage({ credentialId, allCredentials, onBack }) {
     setSearching(false);
   }, [allCredentials]);
 
-  useEffect(() => { if (credentialId) doVerify(credentialId); }, [credentialId]);
+  useEffect(() => {
+    if (!credentialId) return undefined;
+    const timer = setTimeout(() => {
+      doVerify(credentialId);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [credentialId, doVerify]);
 
   return (
     <div style={styles.app}>
@@ -900,8 +940,6 @@ function PortfolioPage({ slug, allCredentials, onVerify, onBack }) {
 
   // Aggregate all unique skills across credentials
   const allSkills = [...new Set(creds.flatMap(c => c.skills))];
-
-  const typeColors = { degree: C.acc, certificate: C.teal, participation: C.amber, "skill": C.purple };
 
   return (
     <div style={styles.app}>
