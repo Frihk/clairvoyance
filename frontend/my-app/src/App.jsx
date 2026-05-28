@@ -80,6 +80,12 @@ const PROFILE_SLUGS = {
   "carol": "Carol Njeri",
 };
 
+const TEAM_MEMBERS = [
+  { slug: "alice", name: "Alice Wanjiku", role: "Protocol Engineer", focus: "Smart contracts", contribution: 86, color: C.acc },
+  { slug: "brian", name: "Brian Omondi", role: "Full-stack Builder", focus: "Credential workflows", contribution: 72, color: C.teal },
+  { slug: "carol", name: "Carol Njeri", role: "Security Reviewer", focus: "Verification quality", contribution: 64, color: C.purple },
+];
+
 // Hardcoded issuer accounts (from spec)
 const ISSUER_ACCOUNTS = [
   { email: "issuer@kenyatta.edu", password: "demo123", name: "Kenyatta University", wallet: "0x7f3a...c91e", role: "issuer" },
@@ -389,7 +395,7 @@ function Landing({ onLogin, onVerify, onPortfolio }) {
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────
-function Dashboard({ user, credentials, onVerify, onIssue, onPortfolio, onLogout }) {
+function Dashboard({ user, credentials, onVerify, onIssue, onPortfolio, onTeam, onLogout }) {
   const [qrModal, setQrModal] = useState(null);
   const [portfolioQr, setPortfolioQr] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
@@ -417,7 +423,7 @@ function Dashboard({ user, credentials, onVerify, onIssue, onPortfolio, onLogout
         <div style={styles.brand}>⬡ ProofPass</div>
         <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
           <span style={{ fontSize: 13, color: C.white, fontWeight: 500, borderBottom: `2px solid ${C.acc}`, paddingBottom: 2 }}>Dashboard</span>
-          <span style={{ fontSize: 13, color: C.dim }}>Team</span>
+          <span style={{ fontSize: 13, color: C.dim, cursor: "pointer" }} onClick={onTeam}>Team</span>
           <span style={{ fontSize: 13, color: C.dim, cursor: "pointer" }} onClick={() => onPortfolio(slug)}>Portfolio</span>
           {user.role === "issuer" && (
             <button style={{ ...styles.btnBlue, fontSize: 12 }} onClick={onIssue}>⛓ Issue</button>
@@ -566,6 +572,94 @@ function Dashboard({ user, credentials, onVerify, onIssue, onPortfolio, onLogout
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── TEAM PAGE ─────────────────────────────────────────────────────────
+function TeamPage({ user, credentials, onBack, onPortfolio, onLogout }) {
+  const members = TEAM_MEMBERS.map(member => {
+    const memberCredentials = credentials.filter(c => c.recipient === member.name);
+    return {
+      ...member,
+      credentialCount: memberCredentials.length,
+      verifiedCount: memberCredentials.filter(c => c.status === "verified").length,
+    };
+  });
+  const totalCredentials = members.reduce((sum, member) => sum + member.credentialCount, 0);
+  const avgContribution = Math.round(members.reduce((sum, member) => sum + member.contribution, 0) / members.length);
+
+  return (
+    <div style={styles.app}>
+      <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Bricolage+Grotesque:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+      <nav style={styles.nav}>
+        <div style={styles.brand}>⬡ ProofPass</div>
+        <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
+          <span style={{ fontSize: 13, color: C.dim, cursor: "pointer" }} onClick={onBack}>Dashboard</span>
+          <span style={{ fontSize: 13, color: C.white, fontWeight: 500, borderBottom: `2px solid ${C.acc}`, paddingBottom: 2 }}>Team</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Tag color={C.green} bg="rgba(34,197,94,0.1)" border="rgba(34,197,94,0.3)">● Connected</Tag>
+          <span style={{ ...styles.mono, fontSize: 11, color: C.dim }}>{user.wallet}</span>
+          <button style={{ ...styles.btnGhost, fontSize: 11 }} onClick={onLogout}>Sign Out</button>
+        </div>
+      </nav>
+
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: "36px 28px" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 20, marginBottom: 28, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ ...styles.mono, fontSize: 10, color: C.acc, letterSpacing: 3, marginBottom: 6, textTransform: "uppercase" }}>Team Console</div>
+            <div style={{ ...styles.display, fontSize: 26, fontWeight: 800, color: C.white, marginBottom: 4 }}>Credential Contributors</div>
+            <div style={{ fontSize: 13, color: C.dim }}>Read-only demo view of team contribution progress and credential coverage.</div>
+          </div>
+          <div style={{ display: "flex", gap: 12 }}>
+            {[
+              { label: "Members", value: members.length, color: C.teal },
+              { label: "Credentials", value: totalCredentials, color: C.green },
+              { label: "Avg Progress", value: `${avgContribution}%`, color: C.amber },
+            ].map(s => (
+              <div key={s.label} style={{ ...styles.card, textAlign: "center", minWidth: 92, padding: "14px 18px" }}>
+                <div style={{ ...styles.mono, fontSize: 9, color: C.dim, letterSpacing: 2, marginBottom: 4, textTransform: "uppercase" }}>{s.label}</div>
+                <div style={{ ...styles.mono, fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {members.map(member => (
+            <div key={member.slug} style={{ ...styles.card, display: "grid", gridTemplateColumns: "52px minmax(0,1fr) 120px", gap: 16, alignItems: "center" }}>
+              <div style={{ width: 52, height: 52, borderRadius: "50%", background: `${member.color}22`, border: `1px solid ${member.color}55`, display: "flex", alignItems: "center", justifyContent: "center", color: member.color, fontWeight: 800, ...styles.display }}>
+                {member.name.split(" ").map(w => w[0]).join("")}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 4 }}>
+                  <div>
+                    <div style={{ fontSize: 14, color: C.white, fontWeight: 700 }}>{member.name}</div>
+                    <div style={{ fontSize: 11, color: C.dim }}>{member.role} · {member.focus}</div>
+                  </div>
+                  <Tag color={C.teal} bg="rgba(0,201,167,0.1)" border="rgba(0,201,167,0.3)">
+                    {member.credentialCount} Credential{member.credentialCount === 1 ? "" : "s"}
+                  </Tag>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
+                  <div style={{ height: 8, background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 20, flex: 1, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${member.contribution}%`, background: member.color, borderRadius: 20 }} />
+                  </div>
+                  <div style={{ ...styles.mono, fontSize: 11, color: member.color, width: 38, textAlign: "right" }}>{member.contribution}%</div>
+                </div>
+                <div style={{ ...styles.mono, fontSize: 10, color: C.dim, marginTop: 6 }}>
+                  {member.verifiedCount} verified · Demo contribution progress
+                </div>
+              </div>
+              <button style={{ ...styles.btnGhost, justifyContent: "center" }} onClick={() => onPortfolio(member.slug)}>
+                Portfolio
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1176,9 +1270,9 @@ export default function App() {
 
   if (page === "portfolio") return <PortfolioPage slug={portfolioSlug} allCredentials={credentials} onVerify={handleVerify} onBack={() => setPage(user ? "dashboard" : "landing")} />;
   if (page === "verify") return <VerifyPage credentialId={verifyId} allCredentials={credentials} onBack={() => setPage(user ? "dashboard" : "landing")} />;
-  if (page === "issue" && user?.role === "issuer") return <IssueCredential user={user} onIssued={handleIssued} onBack={() => setPage("dashboard")} />;
-  if (page === "dashboard" && user) return <Dashboard user={user} credentials={credentials} onVerify={handleVerify} onIssue={() => setPage("issue")} onPortfolio={handlePortfolio} onLogout={handleLogout} />;
-  if (page === "issue" && user) return <Dashboard user={user} credentials={credentials} onVerify={handleVerify} onIssue={() => setPage("issue")} onPortfolio={handlePortfolio} onLogout={handleLogout} />;
+  if (page === "team" && user) return <TeamPage user={user} credentials={credentials} onBack={() => setPage("dashboard")} onPortfolio={handlePortfolio} onLogout={handleLogout} />;
+  if (page === "issue" && user) return <IssueCredential user={user} onIssued={handleIssued} onBack={() => setPage("dashboard")} />;
+  if (page === "dashboard" && user) return <Dashboard user={user} credentials={credentials} onVerify={handleVerify} onIssue={() => setPage("issue")} onPortfolio={handlePortfolio} onTeam={() => setPage("team")} onLogout={handleLogout} />;
 
   return <Landing onLogin={handleLogin} onVerify={handleVerify} onPortfolio={handlePortfolio} />;
 }
