@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/f18charles/piggy-bank/backend/internal/auth"
+	"clairvoyance/internal/auth"
 	"github.com/gin-gonic/gin"
 )
 

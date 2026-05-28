@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/f18charles/piggy-bank/backend/internal/config"
+	"clairvoyance/internal/config"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
