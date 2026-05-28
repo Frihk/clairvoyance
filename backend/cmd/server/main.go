@@ -3,17 +3,25 @@ package main
 import (
 	"log"
 	"net/http"
+
 	"github.com/ibraah007/clairvoyance/backend/internal/db"
 )
 
 func main() {
-    database, err := db.Connect()
-    if err != nil {
-        // Only log, don't use log.Fatalf (which stops the server)
-        log.Printf("Database connection status: %v", err)
-    }
+	// Initialize database connection
+	database, err := db.Connect()
+	if err != nil {
+		log.Printf("Warning: Database unreachable: %v", err)
+		// Database remains nil; repository.go and router.go handle this gracefully
+	}
 
-    mux := setupRoutes(database)
-    log.Println("Server successfully started on port :8080")
-    http.ListenAndServe(":8080", mux)
+	// Setup routes
+	mux := setupRoutes(database)
+
+	log.Println("Server started on port :8080. If DB failed, app is in Read-Only Demo Mode.")
+	
+	// Start server
+	if err := http.ListenAndServe(":8080", mux); err != nil {
+		log.Fatalf("Server failed to start: %v", err)
+	}
 }
