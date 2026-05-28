@@ -3,15 +3,30 @@ package main
 import (
 	"clairvoyance/internal/api/router"
 	"clairvoyance/internal/config"
+	"clairvoyance/internal/models"
 	"clairvoyance/internal/utils"
 	"log"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func main() {
 	config.Load()
 	utils.InitLogger(config.App.AppEnv)
 
-	r := router.SetupRouter()
+	// Initialize database connection
+	db, err := gorm.Open(postgres.Open(config.App.DatabaseURL), &gorm.Config{})
+	if err != nil {
+		log.Fatal("Failed to connect to database:", err)
+	}
+
+	// Auto migrate schemas
+	if err := db.AutoMigrate(&models.User{}, &models.Credential{}); err != nil {
+		log.Fatal("Failed to migrate database:", err)
+	}
+
+	r := router.SetupRouter(db)
 	if err := r.Run(":" + config.App.Port); err != nil {
 		log.Fatal("Failed to start:", err)
 	}
