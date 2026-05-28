@@ -86,6 +86,33 @@ const TEAM_MEMBERS = [
   { slug: "carol", name: "Carol Njeri", role: "Security Reviewer", focus: "Verification quality", contribution: 64, color: C.purple },
 ];
 
+const GITHUB_SYNC = {
+  alice: {
+    handle: "alicewanjiku",
+    lastSynced: "2026-05-28",
+    repos: [
+      { name: "proofpass-contracts", commits: 34, prs: 8, contribution: 92 },
+      { name: "credential-registry", commits: 18, prs: 5, contribution: 74 },
+    ],
+  },
+  brian: {
+    handle: "brianomondi",
+    lastSynced: "2026-05-28",
+    repos: [
+      { name: "proofpass-web", commits: 42, prs: 11, contribution: 88 },
+      { name: "issuer-console", commits: 25, prs: 6, contribution: 69 },
+    ],
+  },
+  carol: {
+    handle: "carolnjeri",
+    lastSynced: "2026-05-27",
+    repos: [
+      { name: "verification-audits", commits: 21, prs: 7, contribution: 81 },
+      { name: "proofpass-contracts", commits: 12, prs: 4, contribution: 58 },
+    ],
+  },
+};
+
 // Hardcoded issuer accounts (from spec)
 const ISSUER_ACCOUNTS = [
   { email: "issuer@kenyatta.edu", password: "demo123", name: "Kenyatta University", wallet: "0x7f3a...c91e", role: "issuer" },
@@ -121,6 +148,46 @@ function statusBadge(status) {
     invalid: { label: "INVALID", color: C.red, bg: "rgba(255,77,109,0.1)", border: "rgba(255,77,109,0.3)" },
   };
   return badgeMap[normalized] || { label: normalized.toUpperCase(), color: C.dim, bg: "rgba(90,106,138,0.1)", border: "rgba(90,106,138,0.3)" };
+}
+
+function personSlug(name) {
+  const entry = Object.entries(PROFILE_SLUGS).find(([, personName]) => personName === name);
+  return entry?.[0] || name?.split(" ")[0]?.toLowerCase() || "";
+}
+
+function githubTotals(sync) {
+  const repos = sync?.repos || [];
+  return repos.reduce((totals, repo) => ({
+    commits: totals.commits + repo.commits,
+    prs: totals.prs + repo.prs,
+    contribution: totals.contribution + repo.contribution,
+  }), { commits: 0, prs: 0, contribution: 0 });
+}
+
+function GitHubRepoRows({ sync, color = C.teal }) {
+  if (!sync) {
+    return (
+      <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.6 }}>
+        No GitHub account linked for this profile yet.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {sync.repos.map(repo => (
+        <div key={repo.name}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 5 }}>
+            <div style={{ ...styles.mono, fontSize: 11, color: C.white }}>{repo.name}</div>
+            <div style={{ ...styles.mono, fontSize: 10, color: C.dim }}>{repo.commits} commits · {repo.prs} PRs</div>
+          </div>
+          <div style={{ height: 6, background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 20, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${repo.contribution}%`, background: color, borderRadius: 20 }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 async function issueCredential(payload) {
@@ -405,7 +472,9 @@ function Dashboard({ user, credentials, onVerify, onIssue, onPortfolio, onTeam, 
   const dashboardMode = user.role === "issuer" ? "issued" : "received";
 
   // derive slug from name for portfolio URL
-  const slug = user.name.split(" ")[0].toLowerCase();
+  const slug = personSlug(user.name);
+  const githubSync = GITHUB_SYNC[slug];
+  const githubStats = githubTotals(githubSync);
 
   async function copyCredentialQrLink(cred) {
     const link = credentialVerifyUrl(cred.id);
@@ -458,6 +527,31 @@ function Dashboard({ user, credentials, onVerify, onIssue, onPortfolio, onTeam, 
               </div>
             ))}
           </div>
+        </div>
+
+        <div style={{ ...styles.card, marginBottom: 24, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 22, alignItems: "start" }}>
+          <div>
+            <div style={{ ...styles.mono, fontSize: 10, color: C.acc, letterSpacing: 2, marginBottom: 8, textTransform: "uppercase" }}>GitHub Sync</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+              <div style={{ ...styles.display, fontSize: 18, fontWeight: 700, color: C.white }}>
+                {githubSync ? `@${githubSync.handle}` : "No handle linked"}
+              </div>
+              <Tag color={githubSync ? C.green : C.amber} bg={githubSync ? "rgba(34,197,94,0.1)" : "rgba(245,166,35,0.1)"} border={githubSync ? "rgba(34,197,94,0.3)" : "rgba(245,166,35,0.3)"}>
+                {githubSync ? "SYNCED" : "PENDING"}
+              </Tag>
+            </div>
+            <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.6 }}>
+              {githubSync
+                ? `${githubStats.commits} commits and ${githubStats.prs} pull requests synced from ${githubSync.repos.length} repositories.`
+                : "Connect GitHub to sync repository contributions into credential evidence."}
+            </div>
+            {githubSync && (
+              <div style={{ ...styles.mono, fontSize: 10, color: C.dim, marginTop: 8 }}>
+                Last synced {githubSync.lastSynced}
+              </div>
+            )}
+          </div>
+          <GitHubRepoRows sync={githubSync} color={C.acc} />
         </div>
 
         {/* Portfolio share banner */}
@@ -580,13 +674,19 @@ function Dashboard({ user, credentials, onVerify, onIssue, onPortfolio, onTeam, 
 function TeamPage({ user, credentials, onBack, onPortfolio, onLogout }) {
   const members = TEAM_MEMBERS.map(member => {
     const memberCredentials = credentials.filter(c => c.recipient === member.name);
+    const sync = GITHUB_SYNC[member.slug];
+    const syncTotals = githubTotals(sync);
     return {
       ...member,
+      github: sync,
+      githubCommits: syncTotals.commits,
+      githubPrs: syncTotals.prs,
       credentialCount: memberCredentials.length,
       verifiedCount: memberCredentials.filter(c => c.status === "verified").length,
     };
   });
   const totalCredentials = members.reduce((sum, member) => sum + member.credentialCount, 0);
+  const totalCommits = members.reduce((sum, member) => sum + member.githubCommits, 0);
   const avgContribution = Math.round(members.reduce((sum, member) => sum + member.contribution, 0) / members.length);
 
   return (
@@ -617,6 +717,7 @@ function TeamPage({ user, credentials, onBack, onPortfolio, onLogout }) {
             {[
               { label: "Members", value: members.length, color: C.teal },
               { label: "Credentials", value: totalCredentials, color: C.green },
+              { label: "Commits", value: totalCommits, color: C.acc },
               { label: "Avg Progress", value: `${avgContribution}%`, color: C.amber },
             ].map(s => (
               <div key={s.label} style={{ ...styles.card, textAlign: "center", minWidth: 92, padding: "14px 18px" }}>
@@ -629,7 +730,7 @@ function TeamPage({ user, credentials, onBack, onPortfolio, onLogout }) {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {members.map(member => (
-            <div key={member.slug} style={{ ...styles.card, display: "grid", gridTemplateColumns: "52px minmax(0,1fr) 120px", gap: 16, alignItems: "center" }}>
+            <div key={member.slug} style={{ ...styles.card, display: "grid", gridTemplateColumns: "52px minmax(0,1fr)", gap: 16, alignItems: "start" }}>
               <div style={{ width: 52, height: 52, borderRadius: "50%", background: `${member.color}22`, border: `1px solid ${member.color}55`, display: "flex", alignItems: "center", justifyContent: "center", color: member.color, fontWeight: 800, ...styles.display }}>
                 {member.name.split(" ").map(w => w[0]).join("")}
               </div>
@@ -643,6 +744,17 @@ function TeamPage({ user, credentials, onBack, onPortfolio, onLogout }) {
                     {member.credentialCount} Credential{member.credentialCount === 1 ? "" : "s"}
                   </Tag>
                 </div>
+                <div style={{ background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", marginTop: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+                    <div style={{ ...styles.mono, fontSize: 10, color: C.acc, letterSpacing: 1.5, textTransform: "uppercase" }}>
+                      GitHub @{member.github?.handle || "unlinked"}
+                    </div>
+                    <div style={{ ...styles.mono, fontSize: 10, color: C.dim }}>
+                      {member.githubCommits} commits · {member.githubPrs} PRs
+                    </div>
+                  </div>
+                  <GitHubRepoRows sync={member.github} color={member.color} />
+                </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
                   <div style={{ height: 8, background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 20, flex: 1, overflow: "hidden" }}>
                     <div style={{ height: "100%", width: `${member.contribution}%`, background: member.color, borderRadius: 20 }} />
@@ -653,7 +765,7 @@ function TeamPage({ user, credentials, onBack, onPortfolio, onLogout }) {
                   {member.verifiedCount} verified · Demo contribution progress
                 </div>
               </div>
-              <button style={{ ...styles.btnGhost, justifyContent: "center" }} onClick={() => onPortfolio(member.slug)}>
+              <button style={{ ...styles.btnGhost, justifyContent: "center", gridColumn: "2", width: 120 }} onClick={() => onPortfolio(member.slug)}>
                 Portfolio
               </button>
             </div>
@@ -1088,6 +1200,11 @@ function PortfolioPage({ slug, allCredentials, onVerify, onBack }) {
   const creds = allCredentials.filter(c => c.recipient === personName);
   const [shareQr, setShareQr] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
+  const githubSync = GITHUB_SYNC[slug];
+  const githubStats = githubTotals(githubSync);
+  const githubAvgContribution = githubSync?.repos.length
+    ? Math.round(githubStats.contribution / githubSync.repos.length)
+    : 0;
 
   // Aggregate all unique skills across credentials
   const allSkills = [...new Set(creds.flatMap(c => c.skills))];
@@ -1136,6 +1253,9 @@ function PortfolioPage({ slug, allCredentials, onVerify, onBack }) {
                 <span style={{ background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.3)", color: C.amber, borderRadius: 20, padding: "4px 14px", ...styles.mono, fontSize: 11 }}>
                   Polygon Amoy
                 </span>
+                <span style={{ background: githubSync ? "rgba(91,141,239,0.1)" : "rgba(245,166,35,0.1)", border: githubSync ? "1px solid rgba(91,141,239,0.3)" : "1px solid rgba(245,166,35,0.3)", color: githubSync ? C.acc : C.amber, borderRadius: 20, padding: "4px 14px", ...styles.mono, fontSize: 11 }}>
+                  {githubSync ? `GitHub @${githubSync.handle}` : "GitHub Unlinked"}
+                </span>
               </div>
 
               {/* Share buttons */}
@@ -1143,6 +1263,39 @@ function PortfolioPage({ slug, allCredentials, onVerify, onBack }) {
                 <button style={{ ...styles.btnGhost, fontSize: 12 }} onClick={() => setShareQr(true)}>📱 Share Portfolio QR</button>
                 <button style={{ ...styles.btnGhost, fontSize: 12 }} onClick={() => navigator.clipboard?.writeText(`proofpass.io/profile/${slug}`)}>🔗 Copy Link</button>
               </div>
+            </div>
+
+            {/* GitHub contribution evidence */}
+            <div style={{ ...styles.card, marginBottom: 24, borderColor: githubSync ? "rgba(91,141,239,0.25)" : C.border }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", flexWrap: "wrap", marginBottom: 16 }}>
+                <div>
+                  <div style={{ ...styles.mono, fontSize: 10, color: C.acc, letterSpacing: 2, marginBottom: 8, textTransform: "uppercase" }}>GitHub Sync</div>
+                  <div style={{ ...styles.display, fontSize: 18, fontWeight: 700, color: C.white, marginBottom: 4 }}>
+                    {githubSync ? `@${githubSync.handle}` : "No handle linked"}
+                  </div>
+                  <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.6 }}>
+                    {githubSync
+                      ? `${githubStats.commits} commits and ${githubStats.prs} pull requests synced from ${githubSync.repos.length} repositories.`
+                      : "Repository contribution evidence has not been synced for this portfolio."}
+                  </div>
+                  {githubSync && (
+                    <div style={{ ...styles.mono, fontSize: 10, color: C.dim, marginTop: 8 }}>
+                      Last synced {githubSync.lastSynced}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <div style={{ minWidth: 84, background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
+                    <div style={{ ...styles.mono, fontSize: 9, color: C.dim, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>Repos</div>
+                    <div style={{ ...styles.mono, fontSize: 20, color: C.acc, fontWeight: 700 }}>{githubSync?.repos.length || 0}</div>
+                  </div>
+                  <div style={{ minWidth: 84, background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
+                    <div style={{ ...styles.mono, fontSize: 9, color: C.dim, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>Avg</div>
+                    <div style={{ ...styles.mono, fontSize: 20, color: C.teal, fontWeight: 700 }}>{githubAvgContribution}%</div>
+                  </div>
+                </div>
+              </div>
+              <GitHubRepoRows sync={githubSync} color={C.acc} />
             </div>
 
             {/* Skills overview */}
