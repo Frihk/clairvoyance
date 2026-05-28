@@ -5,21 +5,12 @@ import (
 	"github.com/ibraah007/clairvoyance/backend/internal/models"
 )
 
-// GetTasksByTeam fetches tasks for your dashboard
+// GetTasksByTeam returns mock data so the API works regardless of network
 func GetTasksByTeam(db *sql.DB, teamID int) ([]models.Task, error) {
-	rows, err := db.Query("SELECT id, team_id, title, tx_hash, status FROM tasks WHERE team_id = $1", teamID)
-	if err != nil {
-		return nil, err
+	// MOCK DATA: This allows you to develop the frontend and flow
+	mockTasks := []models.Task{
+		{ID: 1, TeamID: teamID, Title: "On-chain verification setup", TxHash: "0xabc123", Status: "Pending"},
+		{ID: 2, TeamID: teamID, Title: "Database audit log sync", TxHash: "0xdef456", Status: "Completed"},
 	}
-	defer rows.Close()
-
-	var tasks []models.Task
-	for rows.Next() {
-		var t models.Task
-		if err := rows.Scan(&t.ID, &t.TeamID, &t.Title, &t.TxHash, &t.Status); err != nil {
-			return nil, err
-		}
-		tasks = append(tasks, t)
-	}
-	return tasks, nil
+	return mockTasks, nil
 }
