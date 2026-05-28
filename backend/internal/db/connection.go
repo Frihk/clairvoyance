@@ -9,26 +9,29 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// Connect loads the DB_URL from .env and connects to the database
+// Connect loads the environment and establishes a secure DB connection
 func Connect() (*sql.DB, error) {
-	// 1. Try to load the .env file
-	err := godotenv.Load()
-	if err != nil {
-		fmt.Println("Warning: Could not load .env file, checking system variables instead")
-	}
+	// 1. Load .env file
+	godotenv.Load(".env")
+	godotenv.Load("../../.env")
 
-	// 2. Fetch the URL from the environment
+	// 2. Fetch the DB_URL
 	connStr := os.Getenv("DB_URL")
 	if connStr == "" {
 		return nil, fmt.Errorf("DB_URL environment variable is not set")
 	}
 
-	// 3. Connect
+	// 3. Open the connection
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		return nil, err
 	}
 
-	// 4. Verify the connection
-	return db, db.Ping()
+	// 4. Ping the database
+	err = db.Ping()
+	if err != nil {
+		return nil, fmt.Errorf("could not ping database: %v", err)
+	}
+
+	return db, nil
 }
