@@ -25,11 +25,18 @@ func setupRoutes(database *sql.DB) *http.ServeMux {
 
 	// POST verify endpoint
 	mux.HandleFunc("POST /verify", func(w http.ResponseWriter, r *http.Request) {
-		// In a real scenario, you'd parse JSON body here
-		// For the demo, just return a success confirmation
+		// 1. Parsing would happen here, keeping it static for now as requested
+		taskID := 1 
+		txHash := "0xRealTransactionHash123"
+
+		err := db.UpdateTaskStatus(database, taskID, txHash, "Completed")
+		if err != nil {
+			http.Error(w, "Failed to update task", http.StatusInternalServerError)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status": "verified", "message": "Transaction recorded on-chain"}`))
+		w.Write([]byte(`{"status": "success", "message": "Task updated in database"}`))
 	})
 
 	return mux
