@@ -10,10 +10,13 @@ import (
 
 const defaultTxTimeout = 60 * time.Second
 
+// IssueResult is returned by IssueCredential after the transaction is mined.
 type IssueResult struct {
-	TxHash string
+	TxHash      string
+	BlockNumber int64
 }
 
+// VerifyResult is returned by VerifyCredential from the smart contract.
 type VerifyResult struct {
 	DataHash string
 	Issuer   string
@@ -21,6 +24,8 @@ type VerifyResult struct {
 	Found    bool
 }
 
+// IssueCredential submits the credential hash to the ProofPass contract,
+// waits for the transaction to be mined, and returns the tx hash and block number.
 func (c *Client) IssueCredential(ctx context.Context, credentialID, dataHash string) (*IssueResult, error) {
 	if c == nil {
 		return nil, fmt.Errorf("blockchain client is nil")
@@ -50,9 +55,14 @@ func (c *Client) IssueCredential(ctx context.Context, credentialID, dataHash str
 		return nil, fmt.Errorf("transaction reverted: %s", tx.Hash().Hex())
 	}
 
-	return &IssueResult{TxHash: tx.Hash().Hex()}, nil
+	return &IssueResult{
+		TxHash:      tx.Hash().Hex(),
+		BlockNumber: int64(receipt.BlockNumber.Uint64()),
+	}, nil
 }
 
+// VerifyCredential reads the stored credential hash from the contract.
+// Returns a VerifyResult with Found=false when the credential has not been issued.
 func (c *Client) VerifyCredential(ctx context.Context, credentialID string) (*VerifyResult, error) {
 	if c == nil {
 		return nil, fmt.Errorf("blockchain client is nil")
