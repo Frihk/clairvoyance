@@ -1,0 +1,60 @@
+package blockchain
+
+import (
+	"fmt"
+	"math/big"
+	"strings"
+
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
+)
+
+const AmoyChainID int64 = 80002
+
+type Client struct {
+	eth      *ethclient.Client
+	contract *ProofPass
+	auth     *bind.TransactOpts
+}
+
+func NewClient(rpcURL, contractAddr, privateKey string) (*Client, error) {
+	if !common.IsHexAddress(contractAddr) {
+		return nil, fmt.Errorf("invalid contract address: %s", contractAddr)
+	}
+
+	eth, err := ethclient.Dial(rpcURL)
+	if err != nil {
+		return nil, fmt.Errorf("dial rpc: %w", err)
+	}
+
+	contract, err := NewProofPass(common.HexToAddress(contractAddr), eth)
+	if err != nil {
+		eth.Close()
+		return nil, fmt.Errorf("load contract: %w", err)
+	}
+
+	privateKey = strings.TrimPrefix(privateKey, "0x")
+	privKey, err := crypto.HexToECDSA(privateKey)
+	if err != nil {
+		eth.Close()
+		return nil, fmt.Errorf("parse private key: %w", err)
+	}
+
+	auth, err := bind.NewKeyedTransactorWithChainID(privKey, big.NewInt(AmoyChainID))
+	if err != nil {
+		eth.Close()
+		return nil, fmt.Errorf("build transactor: %w", err)
+	}
+
+	return &Client{eth: eth, contract: contract, auth: auth}, nil
+}
+
+func (c *Client) Close() {
+	if c == nil || c.eth == nil {
+		return
+	}
+
+	c.eth.Close()
+}

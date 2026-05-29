@@ -1,0 +1,131 @@
+package auth
+
+import (
+	"errors"
+	"time"
+
+	"clairvoyance/internal/config"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+)
+
+const (
+	TokenTypeAccess  = "access"
+	TokenTypeRefresh = "refresh"
+
+	accessTokenDuration  = 10 * time.Minute
+	refreshTokenDuration = 7 * 24 * time.Hour // 7 days
+)
+
+func accessDuration() time.Duration {
+	minutes := config.App.JWTExpiryMinutes
+	if minutes <= 0 {
+		minutes = 10
+	}
+	return time.Duration(minutes) * time.Minute
+}
+
+type Claims struct {
+	UserID    uuid.UUID `json:"user_id"`
+	TokenType string    `json:"token_type"` // "access" | "refresh"
+	jwt.RegisteredClaims
+}
+
+// TokenPair holds both tokens returned on login / refresh.
+type TokenPair struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int    `json:"expires_in"` // access token TTL in seconds (600)
+}
+
+// GenerateTokenPair creates a fresh access + refresh token pair for the user.
+// Call this on login, register, and every successful /auth/refresh request.
+func GenerateTokenPair(userID uuid.UUID) (*TokenPair, error) {
+	dur := accessDuration()
+
+	accessToken, err := generateToken(userID, TokenTypeAccess, dur)
+	if err != nil {
+		return nil, err
+	}
+
+	refreshToken, err := generateToken(userID, TokenTypeRefresh, refreshTokenDuration)
+	if err != nil {
+		return nil, err
+	}
+
+	return &TokenPair{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresIn:    int(dur.Seconds()),
+	}, nil
+}
+
+// GenerateToken is kept for backward-compat with any callers that only need
+// an access token (e.g. tests). Returns a plain access token string.
+func GenerateToken(userID uuid.UUID) (string, error) {
+	return generateToken(userID, TokenTypeAccess, accessDuration())
+}
+
+// ValidateToken parses any token and returns its claims.
+// Use ValidateAccessToken / ValidateRefreshToken for type-safe validation.
+func ValidateToken(tokenString string) (*Claims, error) {
+	return parseToken(tokenString)
+}
+
+// ValidateAccessToken validates the token AND asserts it is an access token.
+// Used by the AuthRequired middleware.
+func ValidateAccessToken(tokenString string) (*Claims, error) {
+	claims, err := parseToken(tokenString)
+	if err != nil {
+		return nil, err
+	}
+	if claims.TokenType != TokenTypeAccess {
+		return nil, errors.New("not an access token")
+	}
+	return claims, nil
+}
+
+// ValidateRefreshToken validates the token AND asserts it is a refresh token.
+// Used by the /auth/refresh handler.
+func ValidateRefreshToken(tokenString string) (*Claims, error) {
+	claims, err := parseToken(tokenString)
+	if err != nil {
+		return nil, err
+	}
+	if claims.TokenType != TokenTypeRefresh {
+		return nil, errors.New("not a refresh token")
+	}
+	return claims, nil
+}
+
+// ── internal ──────────────────────────────────────────────────────────────────
+
+func generateToken(userID uuid.UUID, tokenType string, duration time.Duration) (string, error) {
+	claims := Claims{
+		UserID:    userID,
+		TokenType: tokenType,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(config.App.JWTSecret))
+}
+
+func parseToken(tokenString string) (*Claims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
+		return []byte(config.App.JWTSecret), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	claims, ok := token.Claims.(*Claims)
+	if !ok || !token.Valid {
+		return nil, errors.New("invalid token")
+	}
+	return claims, nil
+}

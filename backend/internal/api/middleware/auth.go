@@ -1,0 +1,41 @@
+package middleware
+
+// Drop-in replacement for middleware/auth.go.
+// Only change: uses auth.ValidateAccessToken instead of auth.ValidateToken
+// so that refresh tokens cannot be used as access tokens.
+
+import (
+	"log/slog"
+	"net/http"
+	"strings"
+
+	"clairvoyance/internal/auth"
+	"github.com/gin-gonic/gin"
+)
+
+func AuthRequired() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authorization header required"})
+			return
+		}
+
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid authorization header format"})
+			return
+		}
+
+		// ValidateAccessToken rejects refresh tokens used here
+		claims, err := auth.ValidateAccessToken(parts[1])
+		if err != nil {
+			slog.Warn("auth rejected", "path", c.Request.URL.Path, "reason", err.Error())
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+			return
+		}
+
+		c.Set("user_id", claims.UserID)
+		c.Next()
+	}
+}

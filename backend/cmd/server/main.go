@@ -2,26 +2,38 @@ package main
 
 import (
 	"log"
-	"net/http"
 
-	"github.com/ibraah007/clairvoyance/backend/internal/db"
+	"clairvoyance/internal/api/router"
+	"clairvoyance/internal/config"
+	"clairvoyance/internal/models"
+	"clairvoyance/internal/utils"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func main() {
-	// Initialize database connection
-	database, err := db.Connect()
+	config.Load()
+	utils.InitLogger(config.App.AppEnv)
+
+	// Database connection
+	db, err := gorm.Open(postgres.Open(config.App.DatabaseURL), &gorm.Config{})
 	if err != nil {
-		log.Printf("Warning: Database unreachable: %v", err)
-		// Database remains nil; repository.go and router.go handle this gracefully
+		log.Fatal("Failed to connect to database:", err)
 	}
 
-	// Setup routes
-	mux := setupRoutes(database)
+	// Auto migrate all models
+	if err := db.AutoMigrate(
+		&models.User{},
+		&models.Credential{},
+		&models.Team{},
+		&models.TeamMember{},
+	); err != nil {
+		log.Fatal("Failed to migrate database:", err)
+	}
 
-	log.Println("Server started on port :8080. If DB failed, app is in Read-Only Demo Mode.")
-	
-	// Start server
-	if err := http.ListenAndServe(":8080", mux); err != nil {
-		log.Fatalf("Server failed to start: %v", err)
+	r := router.SetupRouter(db)
+	if err := r.Run(":" + config.App.Port); err != nil {
+		log.Fatal("Failed to start server:", err)
 	}
 }
