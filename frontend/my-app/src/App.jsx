@@ -230,6 +230,9 @@ async function apiRequest(path, method = "GET", body = null, token = null) {
   if (!response.ok) {
     throw new Error(data.message || data.error || `Request failed with status ${response.status}`);
   }
+  if (data && data.success === true && data.data !== undefined) {
+    return data.data;
+  }
   return data;
 }
 
@@ -1643,8 +1646,16 @@ export default function App() {
       setCredentials(merged);
     } catch (e) {
       console.error("Failed to fetch credentials:", e);
+      if (e.message && (e.message.toLowerCase().includes("unauthorized") || e.message.toLowerCase().includes("token") || e.message.toLowerCase().includes("401"))) {
+        disconnect();
+        localStorage.clear();
+        setUser(null);
+        setToken(null);
+        setRefreshToken(null);
+        setPage("landing");
+      }
     }
-  }, []);
+  }, [disconnect]);
 
   useEffect(() => {
     const storedUser = localStorage.getItem("user");
