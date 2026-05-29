@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"clairvoyance/internal/blockchain"
+	"clairvoyance/internal/config"
 	"clairvoyance/internal/models"
 	repository "clairvoyance/internal/repositories"
 	"clairvoyance/internal/utils"
@@ -34,15 +35,15 @@ func NewCredentialService(db *gorm.DB, chain blockchain.BlockchainClient) *Crede
 
 // IssueRequest represents the data needed to issue a new credential
 type IssueRequest struct {
-	Recipient      string    `json:"recipient" binding:"required"` // email or wallet address
+	Recipient      string    `json:"recipient"       binding:"required"` // email or wallet address
 	CredentialType string    `json:"credential_type" binding:"required"`
-	Title          string    `json:"title" binding:"required"`
+	Title          string    `json:"title"           binding:"required"`
 	Description    string    `json:"description"`
-	IssueDate      time.Time `json:"issue_date" binding:"required"`
+	IssueDate      time.Time `json:"issue_date"      binding:"required"`
 	Skills         []string  `json:"skills"`
 }
 
-// IssueResponse represents the response after issuing a credential
+// IssueResponse is returned after a credential is successfully issued.
 type IssueResponse struct {
 	ID          uuid.UUID `json:"id"`
 	VerifyURL   string    `json:"verify_url"`
@@ -51,21 +52,22 @@ type IssueResponse struct {
 	DataHash    string    `json:"data_hash"`
 }
 
-// VerifyResponse represents the verification result
+// VerifyResponse is the structured result of a credential verification request.
 type VerifyResponse struct {
-	Status       string                `json:"status"` // VERIFIED, TAMPERED, NOT_FOUND, ERROR
-	Message      string                `json:"message,omitempty"`
-	Credential   *models.Credential    `json:"credential,omitempty"`
-	BlockNumber  int64                 `json:"block_number,omitempty"`
-	TxHash       string                `json:"tx_hash,omitempty"`
-	Network      string                `json:"network,omitempty"`
-	ComputedHash string                `json:"computed_hash,omitempty"`
-	OnChainHash  string                `json:"onchain_hash,omitempty"`
+	Status       string             `json:"status"`                  // VERIFIED | TAMPERED | NOT_FOUND | ERROR
+	Message      string             `json:"message,omitempty"`
+	Credential   *models.Credential `json:"credential,omitempty"`
+	BlockNumber  int64              `json:"block_number,omitempty"`
+	TxHash       string             `json:"tx_hash,omitempty"`
+	Network      string             `json:"network,omitempty"`
+	ComputedHash string             `json:"computed_hash,omitempty"` // only present on TAMPERED
+	OnChainHash  string             `json:"onchain_hash,omitempty"`  // only present on TAMPERED
 }
 
-// IssueCredential creates a new credential, writes to blockchain, and stores in DB
+// IssueCredential hashes the credential payload, writes it to the ProofPass
+// contract on Polygon, then persists the full record to the database.
 func (cs *CredentialService) IssueCredential(issuerID uuid.UUID, req IssueRequest) (*IssueResponse, error) {
-	// Verify issuer exists
+	// Verify issuer exists and has the right role
 	issuer, err := cs.userRepo.GetUserByID(issuerID)
 	if err != nil {
 		return nil, fmt.Errorf("issuer not found: %w", err)
@@ -74,7 +76,6 @@ func (cs *CredentialService) IssueCredential(issuerID uuid.UUID, req IssueReques
 		return nil, utils.ErrForbidden
 	}
 
-	// Create credential object
 	credentialID := uuid.New()
 	credential := &models.Credential{
 		ID:             credentialID,
@@ -88,11 +89,11 @@ func (cs *CredentialService) IssueCredential(issuerID uuid.UUID, req IssueReques
 		CreatedAt:      time.Now(),
 	}
 
-	// Compute canonical hash
+	// Compute canonical hash before writing to chain
 	dataHash := computeCanonicalHash(credential)
 	credential.DataHash = dataHash
 
-	// Write to blockchain
+	// Write hash to Polygon
 	credentialIDStr := credentialID.String()
 	result, err := cs.chain.IssueCredential(context.Background(), credentialIDStr, dataHash)
 	if err != nil {
@@ -102,22 +103,21 @@ func (cs *CredentialService) IssueCredential(issuerID uuid.UUID, req IssueReques
 	credential.TxHash = result.TxHash
 	credential.BlockNumber = result.BlockNumber
 
-	// Store in database
+	// Persist to DB
 	if err := cs.credRepo.Create(credential); err != nil {
 		slog.Error("database save failed", "error", err, "credential_id", credentialID)
-		// Note: Blockchain already has the credential, but DB failed.
-		// In production, you'd want to handle this inconsistency.
 		return nil, fmt.Errorf("database save failed: %w", err)
 	}
 
-	slog.Info("credential issued", 
-		"credential_id", credentialID, 
-		"issuer_id", issuerID, 
+	slog.Info("credential issued",
+		"credential_id", credentialID,
+		"issuer_id", issuerID,
 		"recipient", req.Recipient,
-		"tx_hash", result.TxHash)
+		"tx_hash", result.TxHash,
+	)
 
-	// Build verify URL (configure base URL from env)
-	verifyURL := fmt.Sprintf("/verify/%s", credentialIDStr)
+	base := config.App.AppBaseURL
+	verifyURL := fmt.Sprintf("%s/api/credentials/verify/%s", base, credentialIDStr)
 
 	return &IssueResponse{
 		ID:          credentialID,
@@ -128,39 +128,27 @@ func (cs *CredentialService) IssueCredential(issuerID uuid.UUID, req IssueReques
 	}, nil
 }
 
-// VerifyCredential verifies a credential by comparing stored data with on-chain record
+// VerifyCredential re-hashes the stored credential data and compares it
+// against the on-chain record. Returns VERIFIED, TAMPERED, NOT_FOUND, or ERROR.
 func (cs *CredentialService) VerifyCredential(credentialID uuid.UUID) (*VerifyResponse, error) {
-	// Load from database
 	credential, err := cs.credRepo.GetByID(credentialID)
 	if err != nil {
 		if err == utils.ErrNotFound {
-			return &VerifyResponse{
-				Status:  "NOT_FOUND",
-				Message: "Credential not found",
-			}, nil
+			return &VerifyResponse{Status: "NOT_FOUND", Message: "Credential not found"}, nil
 		}
 		return nil, fmt.Errorf("database error: %w", err)
 	}
 
-	// Recompute hash from stored data
 	recomputedHash := computeCanonicalHash(credential)
 
-	// Fetch on-chain hash
 	verifyResult, err := cs.chain.VerifyCredential(context.Background(), credentialID.String())
 	if err != nil {
 		slog.Error("blockchain read failed", "error", err, "credential_id", credentialID)
-		return &VerifyResponse{
-			Status:  "ERROR",
-			Message: "Failed to read from blockchain",
-		}, nil
+		return &VerifyResponse{Status: "ERROR", Message: "Failed to read from blockchain"}, nil
 	}
 
-	// Compare
 	if !verifyResult.Found {
-		return &VerifyResponse{
-			Status:  "NOT_FOUND",
-			Message: "Credential not found on chain",
-		}, nil
+		return &VerifyResponse{Status: "NOT_FOUND", Message: "Credential not found on chain"}, nil
 	}
 
 	if recomputedHash == verifyResult.DataHash {
@@ -173,7 +161,11 @@ func (cs *CredentialService) VerifyCredential(credentialID uuid.UUID) (*VerifyRe
 		}, nil
 	}
 
-	// Tampered
+	slog.Warn("hash mismatch",
+		"credential_id", credentialID,
+		"recomputed", recomputedHash,
+		"on_chain", verifyResult.DataHash,
+	)
 	return &VerifyResponse{
 		Status:       "TAMPERED",
 		Message:      "Credential data does not match blockchain record",
@@ -183,58 +175,39 @@ func (cs *CredentialService) VerifyCredential(credentialID uuid.UUID) (*VerifyRe
 	}, nil
 }
 
-// GetUserCredentials returns all credentials owned by a user (by email or wallet)
+// GetUserCredentials returns all credentials where recipient_ref matches
+// the user's email or wallet address, deduplicating by ID.
 func (cs *CredentialService) GetUserCredentials(userID uuid.UUID) ([]models.Credential, error) {
 	user, err := cs.userRepo.GetUserByID(userID)
 	if err != nil {
 		return nil, err
 	}
 
-	var allCredentials []models.Credential
-	recipientRefs := []string{}
-
+	refs := []string{}
 	if user.Email != "" {
-		recipientRefs = append(recipientRefs, user.Email)
+		refs = append(refs, user.Email)
 	}
 	if user.WalletAddress != "" {
-		recipientRefs = append(recipientRefs, user.WalletAddress)
+		refs = append(refs, user.WalletAddress)
 	}
 
-	for _, ref := range recipientRefs {
-		creds, err := cs.credRepo.GetByRecipientRef(ref)
-		if err != nil {
-			continue
-		}
-		allCredentials = append(allCredentials, creds...)
-	}
-
-	// Deduplicate by ID
-	seen := make(map[uuid.UUID]bool)
-	unique := []models.Credential{}
-	for _, cred := range allCredentials {
-		if !seen[cred.ID] {
-			seen[cred.ID] = true
-			unique = append(unique, cred)
-		}
-	}
-
-	return unique, nil
+	return cs.credRepo.GetByRecipientRefs(refs)
 }
 
-// GetIssuerCredentials returns all credentials issued by a specific issuer
+// GetIssuerCredentials returns all credentials issued by the given user.
 func (cs *CredentialService) GetIssuerCredentials(issuerID uuid.UUID) ([]models.Credential, error) {
 	return cs.credRepo.GetByIssuerID(issuerID)
 }
 
-// GetTeamCredentials returns credentials for all team members
-func (cs *CredentialService) GetTeamCredentials(teamID uuid.UUID) ([]models.Credential, error) {
-	// This requires a team repository - implement when needed
-	// For now, return empty
-	return []models.Credential{}, nil
+// GetCredentialsByRefs returns all credentials for a list of recipient refs
+// (emails or wallet addresses). Used by the team credentials endpoint.
+func (cs *CredentialService) GetCredentialsByRefs(refs []string) ([]models.Credential, error) {
+	return cs.credRepo.GetByRecipientRefs(refs)
 }
 
-// computeCanonicalHash creates a deterministic hash from credential data
-// Order must be consistent across issue and verify operations
+// computeCanonicalHash produces a deterministic SHA-256 digest of a
+// credential's core fields. Field order is fixed — never reorder after deploy
+// or all existing on-chain hashes will stop verifying.
 func computeCanonicalHash(cred *models.Credential) string {
 	raw := fmt.Sprintf("%s|%s|%s|%s|%s",
 		cred.RecipientRef,
