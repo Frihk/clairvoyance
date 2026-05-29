@@ -5,6 +5,7 @@ import (
 
 	"clairvoyance/internal/api/router"
 	"clairvoyance/internal/config"
+	"clairvoyance/internal/db"
 	"clairvoyance/internal/models"
 	"clairvoyance/internal/utils"
 
@@ -17,13 +18,13 @@ func main() {
 	utils.InitLogger(config.App.AppEnv)
 
 	// Database connection
-	db, err := gorm.Open(postgres.Open(config.App.DatabaseURL), &gorm.Config{})
+	dbConn, err := gorm.Open(postgres.Open(config.App.DatabaseURL), &gorm.Config{})
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
 
 	// Auto migrate all models
-	if err := db.AutoMigrate(
+	if err := dbConn.AutoMigrate(
 		&models.User{},
 		&models.Credential{},
 		&models.Team{},
@@ -32,7 +33,12 @@ func main() {
 		log.Fatal("Failed to migrate database:", err)
 	}
 
-	r := router.SetupRouter(db)
+	// Seed demo data
+	if err := db.Seed(dbConn); err != nil {
+		log.Println("Warning: Failed to seed database:", err)
+	}
+
+	r := router.SetupRouter(dbConn)
 	if err := r.Run(":" + config.App.Port); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
