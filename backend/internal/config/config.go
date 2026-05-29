@@ -9,11 +9,26 @@ import (
 )
 
 type Config struct {
-	Port             string
-	DatabaseURL      string
+	// Server
+	Port    string
+	AppEnv  string
+	AppBaseURL string
+
+	// Database
+	DatabaseURL string
+
+	// JWT
 	JWTSecret        string
 	JWTExpiryMinutes int
-	AppEnv           string
+
+	// Blockchain — all three must be set to use the real client.
+	// If any is empty the router falls back to MockBlockchainClient.
+	RPCUrl          string
+	ContractAddress string
+	PrivateKey      string
+
+	// CORS
+	AllowedOrigin string
 }
 
 var App Config
@@ -31,15 +46,23 @@ func Load() {
 	}
 
 	App = Config{
-		Port:             getEnv("PORT", "8080"),
-		DatabaseURL:      mustGetEnv("DATABASE_URL"),
+		Port:        getEnv("PORT", "8080"),
+		AppEnv:      getEnv("APP_ENV", "development"),
+		AppBaseURL:  getEnv("APP_BASE_URL", "http://localhost:8080"),
+
+		DatabaseURL: mustGetEnv("DATABASE_URL"),
+
 		JWTSecret:        mustGetEnv("JWT_SECRET"),
 		JWTExpiryMinutes: expiryMinutes,
-		AppEnv:           getEnv("APP_ENV", "development"),
+
+		RPCUrl:          getEnv("RPC_URL", ""),
+		ContractAddress: getEnv("CONTRACT_ADDRESS", ""),
+		PrivateKey:      getEnv("PRIVATE_KEY", ""),
+
+		AllowedOrigin: getEnv("ALLOWED_ORIGIN", "http://localhost:3000"),
 	}
 }
 
-// getEnv returns the environment variable value or the provided fallback.
 func getEnv(key, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
@@ -47,12 +70,10 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-// mustGetEnv returns the value for a required env var or logs/fails when
-// it's missing.
 func mustGetEnv(key string) string {
 	value, ok := os.LookupEnv(key)
 	if !ok || value == "" {
-		log.Fatalf("Required enviroment variable %s is not set", key)
+		log.Fatalf("Required environment variable %s is not set", key)
 	}
 	return value
 }
