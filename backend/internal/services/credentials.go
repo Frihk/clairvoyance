@@ -54,7 +54,7 @@ type IssueResponse struct {
 
 // VerifyResponse is the structured result of a credential verification request.
 type VerifyResponse struct {
-	Status       string             `json:"status"`                  // VERIFIED | TAMPERED | NOT_FOUND | ERROR
+	Status       string             `json:"status"` // VERIFIED | TAMPERED | NOT_FOUND | ERROR
 	Message      string             `json:"message,omitempty"`
 	Credential   *models.Credential `json:"credential,omitempty"`
 	BlockNumber  int64              `json:"block_number,omitempty"`
