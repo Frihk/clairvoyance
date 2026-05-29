@@ -8,12 +8,12 @@ import (
 )
 
 type Team struct {
-	ID          uuid.UUID    `gorm:"type:uuid;primaryKey"   json:"id"`
-	LeaderID    uuid.UUID    `gorm:"type:uuid;not null"     json:"leader_id"`
-	Name        string       `gorm:"not null"               json:"name"`
-	Slug        string       `gorm:"uniqueIndex;not null"   json:"slug"`
-	ProjectName string       `gorm:"not null"               json:"project_name"`
-	CreatedAt   time.Time    `                              json:"created_at"`
+	ID          uuid.UUID `gorm:"type:uuid;primaryKey"   json:"id"`
+	LeaderID    uuid.UUID `gorm:"type:uuid;not null"     json:"leader_id"`
+	Name        string    `gorm:"not null"               json:"name"`
+	Slug        string    `gorm:"uniqueIndex;not null"   json:"slug"`
+	ProjectName string    `gorm:"not null"               json:"project_name"`
+	CreatedAt   time.Time `                              json:"created_at"`
 
 	// Loaded via Preload — not stored in the teams table
 	Members []TeamMember `gorm:"foreignKey:TeamID" json:"members,omitempty"`

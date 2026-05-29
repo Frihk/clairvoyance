@@ -10,8 +10,8 @@ import (
 
 type Config struct {
 	// Server
-	Port    string
-	AppEnv  string
+	Port       string
+	AppEnv     string
 	AppBaseURL string
 
 	// Database
@@ -46,9 +46,9 @@ func Load() {
 	}
 
 	App = Config{
-		Port:        getEnv("PORT", "8080"),
-		AppEnv:      getEnv("APP_ENV", "development"),
-		AppBaseURL:  getEnv("APP_BASE_URL", "http://localhost:8080"),
+		Port:       getEnv("PORT", "8080"),
+		AppEnv:     getEnv("APP_ENV", "development"),
+		AppBaseURL: getEnv("APP_BASE_URL", "http://localhost:8080"),
 
 		DatabaseURL: mustGetEnv("DATABASE_URL"),
 
