@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -93,13 +94,13 @@ func (cs *CredentialService) IssueCredential(issuerID uuid.UUID, req IssueReques
 
 	// Write to blockchain
 	credentialIDStr := credentialID.String()
-	txHash, blockNumber, err := cs.chain.IssueCredential(credentialIDStr, dataHash)
+	result, err := cs.chain.IssueCredential(context.Background(), credentialIDStr, dataHash)
 	if err != nil {
 		slog.Error("blockchain write failed", "error", err, "credential_id", credentialIDStr)
 		return nil, fmt.Errorf("blockchain write failed: %w", err)
 	}
-	credential.TxHash = txHash
-	credential.BlockNumber = blockNumber
+	credential.TxHash = result.TxHash
+	credential.BlockNumber = result.BlockNumber
 
 	// Store in database
 	if err := cs.credRepo.Create(credential); err != nil {
@@ -113,7 +114,7 @@ func (cs *CredentialService) IssueCredential(issuerID uuid.UUID, req IssueReques
 		"credential_id", credentialID, 
 		"issuer_id", issuerID, 
 		"recipient", req.Recipient,
-		"tx_hash", txHash)
+		"tx_hash", result.TxHash)
 
 	// Build verify URL (configure base URL from env)
 	verifyURL := fmt.Sprintf("/verify/%s", credentialIDStr)
@@ -121,8 +122,8 @@ func (cs *CredentialService) IssueCredential(issuerID uuid.UUID, req IssueReques
 	return &IssueResponse{
 		ID:          credentialID,
 		VerifyURL:   verifyURL,
-		TxHash:      txHash,
-		BlockNumber: blockNumber,
+		TxHash:      result.TxHash,
+		BlockNumber: result.BlockNumber,
 		DataHash:    dataHash,
 	}, nil
 }
@@ -145,7 +146,7 @@ func (cs *CredentialService) VerifyCredential(credentialID uuid.UUID) (*VerifyRe
 	recomputedHash := computeCanonicalHash(credential)
 
 	// Fetch on-chain hash
-	onChainHash, _, _, err := cs.chain.VerifyCredential(credentialID.String())
+	verifyResult, err := cs.chain.VerifyCredential(context.Background(), credentialID.String())
 	if err != nil {
 		slog.Error("blockchain read failed", "error", err, "credential_id", credentialID)
 		return &VerifyResponse{
@@ -155,7 +156,14 @@ func (cs *CredentialService) VerifyCredential(credentialID uuid.UUID) (*VerifyRe
 	}
 
 	// Compare
-	if recomputedHash == onChainHash {
+	if !verifyResult.Found {
+		return &VerifyResponse{
+			Status:  "NOT_FOUND",
+			Message: "Credential not found on chain",
+		}, nil
+	}
+
+	if recomputedHash == verifyResult.DataHash {
 		return &VerifyResponse{
 			Status:      "VERIFIED",
 			Credential:  credential,
@@ -171,7 +179,7 @@ func (cs *CredentialService) VerifyCredential(credentialID uuid.UUID) (*VerifyRe
 		Message:      "Credential data does not match blockchain record",
 		Credential:   credential,
 		ComputedHash: recomputedHash,
-		OnChainHash:  onChainHash,
+		OnChainHash:  verifyResult.DataHash,
 	}, nil
 }
 
