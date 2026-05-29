@@ -207,10 +207,39 @@ function GitHubRepoRows({ sync, color = C.teal }) {
   );
 }
 
-async function issueCredential(payload) {
+async function apiRequest(path, method = "GET", body = null, token = null) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const config = {
+    method,
+    headers,
+  };
+  if (body) {
+    config.body = JSON.stringify(body);
+  }
+  const response = await fetch(`${API_BASE_URL}${path}`, config);
+  const text = await response.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { error: text };
+  }
+  if (!response.ok) {
+    throw new Error(data.message || data.error || `Request failed with status ${response.status}`);
+  }
+  return data;
+}
+
+async function issueCredential(payload, token) {
   const response = await fetch(`${API_BASE_URL}/credentials/issue`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`
+    },
     body: JSON.stringify(payload),
   });
   const text = await response.text();
@@ -308,37 +337,74 @@ function Landing({ onLogin, onVerify, onPortfolio }) {
   const { address, chain, isConnected } = useAccount();
   const { connect, connectors, error: connectError, isPending } = useConnect();
 
+  async function triggerWalletAuth(addr, ch) {
+    const emailVal = `${addr.toLowerCase()}@wallet.local`;
+    const passwordVal = `wallet_pass_${addr.toLowerCase()}`;
+    const nameVal = `Wallet User (${shortAddress(addr)})`;
+
+    try {
+      let data;
+      try {
+        data = await apiRequest("/auth/login", "POST", { email: emailVal, password: passwordVal });
+      } catch (loginErr) {
+        data = await apiRequest("/auth/register", "POST", { email: emailVal, password: passwordVal, full_name: nameVal });
+      }
+
+      const userData = data.user || data.data?.user || data;
+      const normalizedUser = {
+        id: userData.id,
+        email: userData.email,
+        name: userData.full_name || userData.FullName || userData.name,
+        wallet: addr,
+        walletAddress: addr,
+        network: ch?.name || "Unknown Network",
+        role: userData.role || "holder",
+      };
+
+      localStorage.setItem("user", JSON.stringify(normalizedUser));
+      localStorage.setItem("access_token", data.access_token);
+      localStorage.setItem("refresh_token", data.refresh_token);
+
+      onLogin(normalizedUser, data.access_token, data.refresh_token);
+    } catch (e) {
+      console.error("Wallet login failed:", e);
+      setErr("Wallet authentication with backend failed.");
+    }
+  }
+
   useEffect(() => {
     if (!isConnected || !address) return;
+    triggerWalletAuth(address, chain);
+  }, [address, chain?.name, isConnected]);
 
-    onLogin({
-      email: `${shortAddress(address)}@wallet.local`,
-      name: "Connected Wallet",
-      wallet: shortAddress(address),
-      walletAddress: address,
-      network: chain?.name || "Unknown Network",
-      role: "holder",
-    });
-  }, [address, chain?.name, isConnected, onLogin]);
-
-  function handleEmailLogin() {
+  async function handleEmailLogin() {
     setErr("");
-    const acct = ISSUER_ACCOUNTS.find(a => a.email === email && a.password === password);
-    if (acct) { onLogin(acct); } else { setErr("Invalid credentials. Try issuer@kenyatta.edu / demo123"); }
+    try {
+      const data = await apiRequest("/auth/login", "POST", { email, password });
+      const userData = data.user || data.data?.user || data;
+      const normalizedUser = {
+        id: userData.id,
+        email: userData.email,
+        name: userData.full_name || userData.FullName || userData.name,
+        wallet: userData.wallet_address || userData.WalletAddress || userData.wallet || "0x...",
+        role: userData.role || "holder",
+      };
+
+      localStorage.setItem("user", JSON.stringify(normalizedUser));
+      localStorage.setItem("access_token", data.access_token);
+      localStorage.setItem("refresh_token", data.refresh_token);
+
+      onLogin(normalizedUser, data.access_token, data.refresh_token);
+    } catch (error) {
+      setErr(error.message || "Invalid credentials. Try issuer@kenyatta.edu / demo123");
+    }
   }
 
   function handleWalletLogin() {
     setErr("");
 
     if (isConnected && address) {
-      onLogin({
-        email: `${shortAddress(address)}@wallet.local`,
-        name: "Connected Wallet",
-        wallet: shortAddress(address),
-        walletAddress: address,
-        network: chain?.name || "Unknown Network",
-        role: "holder",
-      });
+      triggerWalletAuth(address, chain);
       return;
     }
 
@@ -829,7 +895,7 @@ function TeamPage({ user, credentials, onBack, onPortfolio, onLogout }) {
 }
 
 // ── ISSUE CREDENTIAL ────────────────────────────────────────────────────
-function IssueCredential({ user, onIssued, onBack }) {
+function IssueCredential({ user, token, onIssued, onBack }) {
   const [form, setForm] = useState({ recipient: "", recipientEmail: "", type: "certificate", title: "", description: "", issueDate: new Date().toISOString().slice(0, 10), skills: "" });
   const [step, setStep] = useState("form"); // form | signing | success
   const [sigStep, setSigStep] = useState(0);
@@ -868,9 +934,18 @@ function IssueCredential({ user, onIssued, onBack }) {
       dataHash,
     };
 
+    const backendPayload = {
+      recipient: form.recipientEmail || form.recipient,
+      credential_type: form.type,
+      title: form.title,
+      description: form.description,
+      issue_date: new Date(form.issueDate).toISOString(),
+      skills: skillsArr,
+    };
+
     try {
       setSigStep(1);
-      const responseBody = await issueCredential(payload);
+      const responseBody = await issueCredential(backendPayload, token);
       setSigStep(sigSteps.length);
       const issuedCredential = normalizeIssuedCredential(payload, responseBody);
 
@@ -1085,22 +1160,75 @@ function VerifyPage({ credentialId, allCredentials, onBack }) {
   const [searching, setSearching] = useState(false);
   const [state, setState] = useState(null); // null | 'verified' | 'tampered' | 'notfound'
   const [found, setFound] = useState(null);
+  const [tamperDetails, setTamperDetails] = useState(null);
 
   const doVerify = useCallback(async (id) => {
     if (!id) return;
     setSearching(true);
     setState(null);
-    await new Promise(r => setTimeout(r, 1000));
+    setTamperDetails(null);
 
-    if (id === "cred_fake_999" || id.includes("fake") || id.includes("tampered")) {
-      setState("tampered");
-      setFound(null);
-    } else {
+    try {
+      const res = await apiRequest(`/credentials/verify/${id}`, "GET");
+      
+      if (res.status === "VERIFIED" && res.credential) {
+        const c = res.credential;
+        const issuerName = c.issuer?.full_name || c.issuer?.FullName || "Kenyatta University";
+        const issuerWallet = c.issuer?.wallet_address || c.issuer?.WalletAddress || "0x7f3a...c91e";
+        
+        const normalized = {
+          id: c.id,
+          title: c.title,
+          type: c.credential_type || c.type,
+          recipient: c.recipient_ref,
+          recipientEmail: c.recipient_ref,
+          issuer: issuerName,
+          issuerWallet: issuerWallet,
+          issueDate: c.issue_date ? c.issue_date.split("T")[0] : "",
+          description: c.description,
+          skills: c.skills || [],
+          txHash: c.tx_hash || res.tx_hash || "",
+          blockNumber: c.block_number || res.block_number || "",
+          network: res.network || "Polygon Amoy",
+          dataHash: c.data_hash || c.DataHash,
+          status: "verified",
+          emoji: c.credential_type === "degree" ? "🎓" : c.credential_type === "participation" ? "🏅" : "⛓",
+          color: c.credential_type === "degree" ? C.acc : c.credential_type === "participation" ? C.teal : C.purple,
+        };
+        
+        setFound(normalized);
+        setState("verified");
+      } else if (res.status === "TAMPERED") {
+        setTamperDetails({
+          expected: res.onchain_hash,
+          found: res.computed_hash,
+        });
+        setState("tampered");
+        setFound(null);
+      } else {
+        setState("notfound");
+        setFound(null);
+      }
+    } catch (err) {
+      console.error("Verification failed:", err);
       const cred = allCredentials.find(c => c.id === id);
-      if (cred) { setState("verified"); setFound(cred); }
-      else { setState("notfound"); setFound(null); }
+      if (cred) {
+        setState("verified");
+        setFound(cred);
+      } else if (id === "cred_fake_999" || id.includes("fake") || id.includes("tampered")) {
+        setTamperDetails({
+          expected: "0x7f3a8b2c4d5e6f7a8b9c0d1e2f3a4b5c...",
+          found: "0xb9c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6...",
+        });
+        setState("tampered");
+        setFound(null);
+      } else {
+        setState("notfound");
+        setFound(null);
+      }
+    } finally {
+      setSearching(false);
     }
-    setSearching(false);
   }, [allCredentials]);
 
   useEffect(() => {
@@ -1207,9 +1335,13 @@ function VerifyPage({ credentialId, allCredentials, onBack }) {
             <div style={{ ...styles.card, borderColor: "rgba(255,77,109,0.3)", textAlign: "left", maxWidth: 340, margin: "0 auto 20px" }}>
               <div style={{ ...styles.mono, fontSize: 9, color: C.red, letterSpacing: 2, marginBottom: 10, textTransform: "uppercase" }}>Mismatch Details</div>
               <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>Expected (on-chain)</div>
-              <div style={{ ...styles.mono, fontSize: 11, color: C.red, wordBreak: "break-all" }}>0x7f3a8b2c4d5e6f7a8b9c0d1e2f3a4b5c...</div>
+              <div style={{ ...styles.mono, fontSize: 11, color: C.red, wordBreak: "break-all" }}>
+                {tamperDetails?.expected || "0x7f3a8b2c4d5e6f7a8b9c0d1e2f3a4b5c..."}
+              </div>
               <div style={{ fontSize: 11, color: C.dim, marginTop: 8, marginBottom: 4 }}>Found (computed)</div>
-              <div style={{ ...styles.mono, fontSize: 11, color: C.red, wordBreak: "break-all" }}>0xb9c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6...</div>
+              <div style={{ ...styles.mono, fontSize: 11, color: C.red, wordBreak: "break-all" }}>
+                {tamperDetails?.found || "0xb9c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6..."}
+              </div>
             </div>
             <button style={{ background: "rgba(255,77,109,0.15)", color: C.red, border: `1px solid rgba(255,77,109,0.3)`, borderRadius: 8, padding: "8px 18px", fontSize: 12, cursor: "pointer" }}>
               Report This Credential
@@ -1458,17 +1590,117 @@ function PortfolioPage({ slug, allCredentials, onVerify, onBack }) {
 export default function App() {
   const [page, setPage] = useState("landing"); // landing | dashboard | issue | verify | portfolio
   const [user, setUser] = useState(null);
+  const [token, setToken] = useState(localStorage.getItem("access_token"));
+  const [refreshToken, setRefreshToken] = useState(localStorage.getItem("refresh_token"));
   const [credentials, setCredentials] = useState(SEED_CREDENTIALS);
   const [verifyId, setVerifyId] = useState(null);
   const [portfolioSlug, setPortfolioSlug] = useState(null);
   const { disconnect } = useDisconnect();
 
-  function handleLogin(u) { setUser(u); setPage("dashboard"); }
+  const fetchCredentials = useCallback(async (authToken) => {
+    if (!authToken) return;
+    try {
+      const storedUser = localStorage.getItem("user");
+      if (!storedUser) return;
+      const u = JSON.parse(storedUser);
+      
+      const endpoint = u.role === "issuer" ? "/credentials/issued" : "/credentials/mine";
+      const res = await apiRequest(endpoint, "GET", null, authToken);
+      const list = res.credentials || res.data?.credentials || [];
+      
+      const normalized = list.map(c => {
+        const issuerName = c.issuer?.full_name || c.issuer?.FullName || "Kenyatta University";
+        const issuerWallet = c.issuer?.wallet_address || c.issuer?.WalletAddress || "0x7f3a...c91e";
+        
+        return {
+          id: c.id,
+          title: c.title,
+          type: c.credential_type || c.type,
+          recipient: c.recipient_ref,
+          recipientEmail: c.recipient_ref,
+          issuer: issuerName,
+          issuerWallet: issuerWallet,
+          issueDate: c.issue_date ? c.issue_date.split("T")[0] : "",
+          description: c.description,
+          skills: c.skills || [],
+          txHash: c.tx_hash,
+          blockNumber: c.block_number,
+          network: "Polygon Amoy",
+          dataHash: c.data_hash || c.DataHash,
+          status: "verified",
+          emoji: c.credential_type === "degree" ? "🎓" : c.credential_type === "participation" ? "🏅" : "⛓",
+          color: c.credential_type === "degree" ? C.acc : c.credential_type === "participation" ? C.teal : C.purple,
+        };
+      });
+      
+      const merged = [...normalized];
+      SEED_CREDENTIALS.forEach(sc => {
+        if (!merged.some(c => c.id === sc.id)) {
+          merged.push(sc);
+        }
+      });
+      
+      setCredentials(merged);
+    } catch (e) {
+      console.error("Failed to fetch credentials:", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem("user");
+    const storedToken = localStorage.getItem("access_token");
+    if (storedUser && storedToken) {
+      try {
+        setUser(JSON.parse(storedUser));
+        setToken(storedToken);
+        setPage("dashboard");
+      } catch (e) {
+        localStorage.clear();
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user && token) {
+      fetchCredentials(token);
+    }
+  }, [user, token, fetchCredentials]);
+
+  useEffect(() => {
+    if (!refreshToken) return;
+    
+    const interval = setInterval(async () => {
+      try {
+        const data = await apiRequest("/auth/refresh", "POST", { refresh_token: refreshToken });
+        localStorage.setItem("access_token", data.access_token);
+        localStorage.setItem("refresh_token", data.refresh_token);
+        setToken(data.access_token);
+        setRefreshToken(data.refresh_token);
+      } catch (err) {
+        console.warn("Session refresh failed, logging out", err);
+        handleLogout();
+      }
+    }, 8 * 60 * 1000);
+    
+    return () => clearInterval(interval);
+  }, [refreshToken]);
+
+  function handleLogin(u, accToken, refToken) {
+    setUser(u);
+    setToken(accToken);
+    setRefreshToken(refToken);
+    setPage("dashboard");
+  }
+
   function handleLogout() {
     disconnect();
+    localStorage.clear();
     setUser(null);
+    setToken(null);
+    setRefreshToken(null);
     setPage("landing");
   }
+
   function handleVerify(id) { setVerifyId(id); setPage("verify"); }
   function handlePortfolio(slug) { setPortfolioSlug(slug); setPage("portfolio"); }
   function handleIssued(cred) { setCredentials(cs => [...cs, cred]); }
@@ -1476,7 +1708,7 @@ export default function App() {
   if (page === "portfolio") return <PortfolioPage slug={portfolioSlug} allCredentials={credentials} onVerify={handleVerify} onBack={() => setPage(user ? "dashboard" : "landing")} />;
   if (page === "verify") return <VerifyPage credentialId={verifyId} allCredentials={credentials} onBack={() => setPage(user ? "dashboard" : "landing")} />;
   if (page === "team" && user) return <TeamPage user={user} credentials={credentials} onBack={() => setPage("dashboard")} onPortfolio={handlePortfolio} onLogout={handleLogout} />;
-  if (page === "issue" && user) return <IssueCredential user={user} onIssued={handleIssued} onBack={() => setPage("dashboard")} />;
+  if (page === "issue" && user) return <IssueCredential user={user} token={token} onIssued={handleIssued} onBack={() => setPage("dashboard")} />;
   if (page === "dashboard" && user) return <Dashboard user={user} credentials={credentials} onVerify={handleVerify} onIssue={() => setPage("issue")} onPortfolio={handlePortfolio} onTeam={() => setPage("team")} onLogout={handleLogout} />;
 
   return <Landing onLogin={handleLogin} onVerify={handleVerify} onPortfolio={handlePortfolio} />;
