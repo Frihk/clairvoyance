@@ -2,7 +2,7 @@ package db
 
 import (
 	"database/sql"
-	"github.com/ibraah007/clairvoyance/backend/internal/models"
+	"clairvoyance/internal/models"
 )
 
 func GetTasksByTeam(db *sql.DB, teamID int) ([]models.Task, error) {
