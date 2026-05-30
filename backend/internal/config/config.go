@@ -15,7 +15,8 @@ type Config struct {
 	AppBaseURL string
 
 	// Database
-	DatabaseURL string
+	DatabaseURL      string
+	MigrateOnStartup bool
 
 	// JWT
 	JWTSecret        string
@@ -54,7 +55,8 @@ func Load() {
 		AppEnv:     getEnv("APP_ENV", "development"),
 		AppBaseURL: getEnv("APP_BASE_URL", "http://localhost:8080"),
 
-		DatabaseURL: mustGetEnv("DATABASE_URL"),
+		DatabaseURL:      mustGetEnv("DATABASE_URL"),
+		MigrateOnStartup: getBoolEnv("MIGRATE_ON_STARTUP", getEnv("APP_ENV", "development") != "production"),
 
 		JWTSecret:        mustGetEnv("JWT_SECRET"),
 		JWTExpiryMinutes: expiryMinutes,
@@ -83,4 +85,18 @@ func mustGetEnv(key string) string {
 		log.Fatalf("Required environment variable %s is not set", key)
 	}
 	return value
+}
+
+func getBoolEnv(key string, fallback bool) bool {
+	value, ok := os.LookupEnv(key)
+	if !ok || value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
 }

@@ -27,8 +27,10 @@ func NewHandler() (http.Handler, error) {
 		return nil, err
 	}
 
-	if err := migrate(db); err != nil {
-		return nil, err
+	if config.App.MigrateOnStartup {
+		if err := migrate(db); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := seedDemoIssuer(db); err != nil {

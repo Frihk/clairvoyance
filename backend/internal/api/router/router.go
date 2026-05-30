@@ -19,6 +19,13 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 
 	r.Use(middleware.CORS())
 
+	r.GET("/", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "ok",
+			"service": "ProofPass API",
+		})
+	})
+
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
