@@ -27,6 +27,10 @@ type Config struct {
 	ContractAddress string
 	PrivateKey      string
 
+	// Demo issuer
+	IssuerEmail string
+	IssuerPass  string
+
 	// CORS
 	AllowedOrigin string
 }
@@ -58,6 +62,9 @@ func Load() {
 		RPCUrl:          getEnv("RPC_URL", ""),
 		ContractAddress: getEnv("CONTRACT_ADDRESS", ""),
 		PrivateKey:      getEnv("PRIVATE_KEY", ""),
+
+		IssuerEmail: getEnv("ISSUER_EMAIL", ""),
+		IssuerPass:  getEnv("ISSUER_PASS", ""),
 
 		AllowedOrigin: getEnv("ALLOWED_ORIGIN", "http://localhost:3000"),
 	}

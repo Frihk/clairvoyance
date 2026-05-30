@@ -1,8 +1,8 @@
 package blockchain
 
 import (
+	"context"
 	"fmt"
-	"math/big"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -10,8 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
-
-const AmoyChainID int64 = 80002
 
 type Client struct {
 	eth      *ethclient.Client
@@ -42,7 +40,13 @@ func NewClient(rpcURL, contractAddr, privateKey string) (*Client, error) {
 		return nil, fmt.Errorf("parse private key: %w", err)
 	}
 
-	auth, err := bind.NewKeyedTransactorWithChainID(privKey, big.NewInt(AmoyChainID))
+	chainID, err := eth.ChainID(context.Background())
+	if err != nil {
+		eth.Close()
+		return nil, fmt.Errorf("read chain id: %w", err)
+	}
+
+	auth, err := bind.NewKeyedTransactorWithChainID(privKey, chainID)
 	if err != nil {
 		eth.Close()
 		return nil, fmt.Errorf("build transactor: %w", err)
