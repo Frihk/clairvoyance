@@ -1,0 +1,49 @@
+{
+  "_format": "hh3-sol-build-info-1",
+  "id": "solc-0_8_28-ce4e146de7deeb97d12249e0e0e7d965fc24a455",
+  "solcVersion": "0.8.28",
+  "solcLongVersion": "0.8.28+commit.7893614a",
+  "compilerType": "solc",
+  "toolVersions": {
+    "hardhat": "3.6.0"
+  },
+  "userSourceNameMap": {
+    "contracts/ProofPass.sol": "project/contracts/ProofPass.sol"
+  },
+  "input": {
+    "language": "Solidity",
+    "settings": {
+      "evmVersion": "cancun",
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "outputSelection": {
+        "*": {
+          "": [
+            "ast"
+          ],
+          "*": [
+            "abi",
+            "evm.bytecode.linkReferences",
+            "evm.bytecode.object",
+            "evm.bytecode.opcodes",
+            "evm.bytecode.sourceMap",
+            "evm.deployedBytecode.immutableReferences",
+            "evm.deployedBytecode.linkReferences",
+            "evm.deployedBytecode.object",
+            "evm.deployedBytecode.opcodes",
+            "evm.deployedBytecode.sourceMap",
+            "evm.methodIdentifiers"
+          ]
+        }
+      },
+      "remappings": []
+    },
+    "sources": {
+      "project/contracts/ProofPass.sol": {
+        "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n\ncontract ProofPass {\n\n    struct CredentialRecord {\n        string  dataHash;\n        address issuer;\n        uint256 issuedAt;\n    }\n\n    mapping(string => CredentialRecord) private records;\n    mapping(address => bool) public  authorizedIssuers;\n    address public owner;\n\n    event CredentialIssued(string credentialId, string dataHash, address issuer);\n\n    constructor() { owner = msg.sender; }\n\n    modifier onlyOwner()  { require(msg.sender == owner, \"Not owner\"); _; }\n    modifier onlyIssuer() { require(authorizedIssuers[msg.sender], \"Not issuer\"); _; }\n\n    function addIssuer(address issuer) external onlyOwner {\n        authorizedIssuers[issuer] = true;\n    }\n\n    function issueCredential(\n        string calldata credentialId,\n        string calldata dataHash\n    ) external onlyIssuer {\n        require(records[credentialId].issuedAt == 0, \"Already issued\");\n        records[credentialId] = CredentialRecord(dataHash, msg.sender, block.timestamp);\n        emit CredentialIssued(credentialId, dataHash, msg.sender);\n    }\n\n    function verifyCredential(string calldata credentialId)\n        external view returns (string memory, address, uint256)\n    {\n        CredentialRecord memory r = records[credentialId];\n        return (r.dataHash, r.issuer, r.issuedAt);\n    }\n}\n"
+      }
+    }
+  }
+}
