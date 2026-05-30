@@ -1,17 +1,20 @@
 import { network } from "hardhat";
 import { getAddress, isAddress } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 
-const proofPassAddress =
-  process.env.PROOFPASS_ADDRESS ?? "0x8a4dcdc1db7502948b43713e8eb67817d6b642a4";
+const proofPassAddress = process.env.PROOFPASS_ADDRESS ?? process.env.CONTRACT_ADDRESS;
 const backendWalletAddress =
-  process.env.BACKEND_WALLET_ADDRESS ?? "0x06b1c4327d2cf5e3aa3cb0c84f0158fd89bb32cd";
+  process.env.BACKEND_WALLET_ADDRESS ??
+  (process.env.PRIVATE_KEY
+    ? privateKeyToAccount(normalizePrivateKey(process.env.PRIVATE_KEY)).address
+    : undefined);
 
 async function main() {
-  if (!isAddress(proofPassAddress)) {
+  if (!proofPassAddress || !isAddress(proofPassAddress)) {
     throw new Error(`Invalid PROOFPASS_ADDRESS: ${proofPassAddress}`);
   }
 
-  if (!isAddress(backendWalletAddress)) {
+  if (!backendWalletAddress || !isAddress(backendWalletAddress)) {
     throw new Error(`Invalid BACKEND_WALLET_ADDRESS: ${backendWalletAddress}`);
   }
 
@@ -52,3 +55,9 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
+function normalizePrivateKey(privateKey: string): `0x${string}` {
+  return privateKey.startsWith("0x")
+    ? (privateKey as `0x${string}`)
+    : (`0x${privateKey}` as `0x${string}`);
+}

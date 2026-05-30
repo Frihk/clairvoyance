@@ -10,7 +10,43 @@ const C = {
   white: "#F0F4FF", text: "#B8C4DE", dim: "#5A6A8A",
 };
 
-const API_BASE_URL = (import.meta.env.VITE_P2_API_URL || import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+const API_BASE_URL = (import.meta.env.VITE_P2_API_URL || import.meta.env.VITE_API_URL || "http://localhost:8080/api").replace(/\/$/, "");
+
+function apiData(body) {
+  return body?.data ?? body;
+}
+
+async function loginIssuer(email, password) {
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const text = await response.text();
+  let body;
+  try {
+    body = text ? JSON.parse(text) : {};
+  } catch {
+    body = { error: text };
+  }
+
+  if (!response.ok) {
+    throw new Error(body.error || body.message || `Login failed with status ${response.status}`);
+  }
+
+  const data = apiData(body);
+  const user = data.user || {};
+  return {
+    email: user.email || email,
+    name: user.full_name || user.name || "Demo Issuer",
+    wallet: user.wallet_address || "",
+    walletAddress: user.wallet_address || "",
+    role: user.role || "issuer",
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    expiresIn: data.expires_in,
+  };
+}
 
 // ── Seed Credentials ───────────────────────────────────────────────────
 const SEED_CREDENTIALS = [
@@ -207,10 +243,13 @@ function GitHubRepoRows({ sync, color = C.teal }) {
   );
 }
 
-async function issueCredential(payload) {
+async function issueCredential(payload, accessToken) {
   const response = await fetch(`${API_BASE_URL}/credentials/issue`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
     body: JSON.stringify(payload),
   });
   const text = await response.text();
@@ -225,7 +264,7 @@ async function issueCredential(payload) {
     throw new Error(body.message || body.error || `Issue request failed with status ${response.status}`);
   }
 
-  return body;
+  return apiData(body);
 }
 
 function normalizeIssuedCredential(payload, responseBody) {
@@ -321,10 +360,14 @@ function Landing({ onLogin, onVerify, onPortfolio }) {
     });
   }, [address, chain?.name, isConnected, onLogin]);
 
-  function handleEmailLogin() {
+  async function handleEmailLogin() {
     setErr("");
-    const acct = ISSUER_ACCOUNTS.find(a => a.email === email && a.password === password);
-    if (acct) { onLogin(acct); } else { setErr("Invalid credentials. Try issuer@kenyatta.edu / demo123"); }
+    try {
+      const acct = await loginIssuer(email, password);
+      onLogin(acct);
+    } catch (error) {
+      setErr(error.message || "Invalid credentials. Try issuer@kenyatta.edu / demo123");
+    }
   }
 
   function handleWalletLogin() {
@@ -855,6 +898,15 @@ function IssueCredential({ user, onIssued, onBack }) {
     const dataHash = fakeHash(form.title + form.recipient + form.issueDate + skillsArr.join());
 
     const payload = {
+      title: form.title,
+      credential_type: form.type,
+      recipient: form.recipient,
+      issue_date: new Date(`${form.issueDate}T00:00:00Z`).toISOString(),
+      description: form.description,
+      skills: skillsArr,
+    };
+
+    const localPayload = {
       id: credId,
       title: form.title,
       type: form.type,
@@ -870,9 +922,9 @@ function IssueCredential({ user, onIssued, onBack }) {
 
     try {
       setSigStep(1);
-      const responseBody = await issueCredential(payload);
+      const responseBody = await issueCredential(payload, user.accessToken);
       setSigStep(sigSteps.length);
-      const issuedCredential = normalizeIssuedCredential(payload, responseBody);
+      const issuedCredential = normalizeIssuedCredential(localPayload, responseBody);
 
       setResult(issuedCredential);
       setStep("success");

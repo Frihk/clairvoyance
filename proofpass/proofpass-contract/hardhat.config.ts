@@ -8,6 +8,7 @@ const configDir = path.dirname(fileURLToPath(import.meta.url));
 
 dotenv.config({ path: path.resolve(configDir, ".env") });
 dotenv.config({ path: path.resolve(configDir, "../../.env") });
+dotenv.config({ path: path.resolve(configDir, "../../backend/.env") });
 
 process.env.POLYGON_AMOY_PRIVATE_KEY ??= process.env.DEPLOYER_PRIVATE_KEY;
 process.env.POLYGON_AMOY_RPC_URL ??= "https://polygon-amoy.drpc.org";
