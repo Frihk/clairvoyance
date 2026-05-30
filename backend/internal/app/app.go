@@ -19,17 +19,15 @@ func NewHandler() (http.Handler, error) {
 	config.Load()
 	utils.InitLogger(config.App.AppEnv)
 
-	db, err := gorm.Open(postgres.Open(config.App.DatabaseURL), &gorm.Config{})
+	db, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  config.App.DatabaseURL,
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{})
 	if err != nil {
 		return nil, err
 	}
 
-	if err := db.AutoMigrate(
-		&models.User{},
-		&models.Credential{},
-		&models.Team{},
-		&models.TeamMember{},
-	); err != nil {
+	if err := migrate(db); err != nil {
 		return nil, err
 	}
 
@@ -38,6 +36,20 @@ func NewHandler() (http.Handler, error) {
 	}
 
 	return router.SetupRouter(db), nil
+}
+
+func migrate(db *gorm.DB) error {
+	if err := db.Exec("SELECT pg_advisory_lock(2026053001)").Error; err != nil {
+		return err
+	}
+	defer db.Exec("SELECT pg_advisory_unlock(2026053001)")
+
+	return db.AutoMigrate(
+		&models.User{},
+		&models.Credential{},
+		&models.Team{},
+		&models.TeamMember{},
+	)
 }
 
 func MustHandler() http.Handler {
